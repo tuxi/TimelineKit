@@ -17,9 +17,6 @@ shaped for standalone open-source use.
 - The editor UI and video export flow are primarily iOS-oriented.
 - Model, conversion, animation, and persistence code are designed as reusable
   package internals.
-- `Package.swift` currently depends on a sibling package at `../DesignKit`.
-  To build this repository as-is, provide that package next to `TimelineKit` or
-  replace the small DesignKit-dependent UI hooks with your own app UI layer.
 - There is no test target yet.
 
 ## What It Includes
@@ -98,7 +95,6 @@ Design notes and versioned specs live in [`docs/`](docs/). Start with:
 - Swift 6.2+
 - Xcode with iOS 18 SDK / macOS 15 SDK
 - Apple platforms with AVFoundation, Core Image, SwiftUI, Observation, and Photos
-- A local `DesignKit` package, unless you remove or replace that dependency
 
 ## Installation
 
@@ -114,12 +110,15 @@ Then add the product to your target:
 .product(name: "TimelineKit", package: "TimelineKit")
 ```
 
-For the current local repository layout, `Package.swift` expects:
+For local development, open the package directory or the included demo project:
 
 ```text
-../DesignKit
-../TimelineKit
+TimelineKit/
+Examples/VideoEditorDemo/VideoEditorDemo.xcodeproj
 ```
+
+The demo app lets you pick photos or videos from the system photo library and
+opens them through `TimelineImporter.importingMedia(from:)`.
 
 ## Quick Start
 
@@ -198,8 +197,6 @@ the server/debug schema.
 
 ## Current Limitations
 
-- The package is not yet dependency-clean for public SPM consumption because of
-  the local `../DesignKit` dependency.
 - Some historical docs still mention the original DreamAI/DreamLog integration
   context.
 - The codebase currently has documentation-heavy version specs but no automated

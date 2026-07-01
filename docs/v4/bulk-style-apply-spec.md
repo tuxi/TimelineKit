@@ -182,7 +182,7 @@ func applyStyleToTrackSegmentsOfKind(
 
 ### 4.3 完成后反馈
 
-成功后 toast：`已应用到 \(count) 个片段`。toast 使用 DesignKit 已有的 `ToastView`（沿用 v3 toast 风格）。
+成功后 toast：`已应用到 \(count) 个片段`。toast 使用 TimelineKit 内置的 `ToastView`（沿用 v3 toast 风格）。
 
 ---
 

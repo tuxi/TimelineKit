@@ -2,7 +2,6 @@ import Foundation
 import Observation
 import AVFoundation
 import CoreMedia
-import DesignKit
 
 /// Observable store that owns the EditorTimeline and manages undo/redo.
 ///
@@ -1391,7 +1390,7 @@ public final class EditorStore: Identifiable {
 
     /// After a text/subtitle edit lands, look up every audio segment whose
     /// `ttsSource.sourceSegmentID == sourceID` and whose `textHash` no longer
-    /// matches. If any exist, post a DesignKit toast so the user can decide.
+    /// matches. If any exist, post a TimelineKit toast so the user can decide.
     fileprivate func notifyStaleTTSIfNeeded(forSourceSegment sourceID: UUID, newText: String) {
         let newHash = TTSService.textHash(newText)
         let stale = timeline.tracks.flatMap { $0.segments }.contains { seg in

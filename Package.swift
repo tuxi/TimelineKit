@@ -17,7 +17,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../DesignKit")
+        
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -25,7 +25,7 @@ let package = Package(
         .target(
             name: "TimelineKit",
             dependencies: [
-                "DesignKit"
+               
             ]
         ),
 

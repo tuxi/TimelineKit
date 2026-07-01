@@ -1,7 +1,6 @@
 #if canImport(UIKit)
 import SwiftUI
 import UIKit
-import DesignKit
 
 /// Full-screen export progress / result page.
 /// Pushed onto the existing NavigationStack from ClipEditorView.
