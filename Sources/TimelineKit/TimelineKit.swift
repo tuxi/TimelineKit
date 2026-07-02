@@ -1,7 +1,15 @@
 /// TimelineKit — Video clip editor core extracted from DreamAI.
 ///
-/// All types defined in this package are automatically available to importers.
+/// V8 umbrella module: re-exports all sub-modules for backward compatibility.
+/// New integrations should prefer importing the specific sub-module they need
+/// (e.g. `TimelineKitUIiOS` for iOS apps, `TimelineKitRender` for headless rendering).
+///
 /// This file serves as the module documentation entry point.
+
+@_exported import TimelineKitCore
+@_exported import TimelineKitRender
+@_exported import TimelineKitUIShared
+@_exported import TimelineKitUIiOS
 ///
 /// ## Quick Start
 ///

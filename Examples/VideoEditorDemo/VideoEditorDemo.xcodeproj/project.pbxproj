@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		D02FE9A02FF4EDAA0099797A /* TimelineKit in Frameworks */ = {isa = PBXBuildFile; productRef = D02FE99F2FF4EDAA0099797A /* TimelineKit */; };
+		D02FEB142FF61A900099797A /* TimelineKitUIiOS in Frameworks */ = {isa = PBXBuildFile; productRef = D02FEB132FF61A900099797A /* TimelineKitUIiOS */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,7 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D02FE9A02FF4EDAA0099797A /* TimelineKit in Frameworks */,
+				D02FEB142FF61A900099797A /* TimelineKitUIiOS in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,7 +78,7 @@
 			);
 			name = VideoEditorDemo;
 			packageProductDependencies = (
-				D02FE99F2FF4EDAA0099797A /* TimelineKit */,
+				D02FEB132FF61A900099797A /* TimelineKitUIiOS */,
 			);
 			productName = VideoEditorDemo;
 			productReference = D02FE98A2FF4ECF20099797A /* VideoEditorDemo.app */;
@@ -109,7 +109,7 @@
 			mainGroup = D02FE9812FF4ECF20099797A;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				D02FE9982FF4ED0F0099797A /* XCLocalSwiftPackageReference "../../../TimelineKit" */,
+				D02FEB152FF631B40099797A /* XCLocalSwiftPackageReference "../../../TimelineKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D02FE98B2FF4ECF20099797A /* Products */;
@@ -370,17 +370,16 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		D02FE9982FF4ED0F0099797A /* XCLocalSwiftPackageReference "../../../TimelineKit" */ = {
+		D02FEB152FF631B40099797A /* XCLocalSwiftPackageReference "../../../TimelineKit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../../TimelineKit;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		D02FE99F2FF4EDAA0099797A /* TimelineKit */ = {
+		D02FEB132FF61A900099797A /* TimelineKitUIiOS */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = D02FE9982FF4ED0F0099797A /* XCLocalSwiftPackageReference "../../../TimelineKit" */;
-			productName = TimelineKit;
+			productName = TimelineKitUIiOS;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -7,8 +7,10 @@
 
 import SwiftUI
 import PhotosUI
-import TimelineKit
 import UniformTypeIdentifiers
+import TimelineKitCore
+import TimelineKitUIShared
+import TimelineKitUIiOS
 
 struct VideoEditorView: View {
     @State private var editorStore: EditorStore?
