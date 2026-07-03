@@ -1,6 +1,6 @@
-#if canImport(UIKit)
+import Foundation
+#if canImport(AVFoundation)
 import AVFoundation
-import UIKit
 
 /// URLAsset cache — one instance per process.
 /// NSCache evicts under memory pressure; the cache only holds asset *descriptors*
@@ -14,12 +14,14 @@ public final class AssetCache: @unchecked Sendable {
 
     private init() {
         cache.totalCostLimit = 20 * 1_024 * 1_024  // 20 MB (metadata only)
+#if canImport(UIKit)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(memoryWarning),
             name: UIApplication.didReceiveMemoryWarningNotification,
             object: nil
         )
+#endif
     }
 
     public func asset(for url: URL) -> AVURLAsset {

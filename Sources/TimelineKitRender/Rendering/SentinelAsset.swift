@@ -1,5 +1,5 @@
 import TimelineKitCore
-#if canImport(UIKit)
+#if canImport(AVFoundation)
 import AVFoundation
 import CoreImage
 

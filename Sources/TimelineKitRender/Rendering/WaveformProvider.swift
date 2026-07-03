@@ -1,6 +1,6 @@
-#if canImport(UIKit)
+import Foundation
+#if canImport(AVFoundation)
 import AVFoundation
-import UIKit
 import TimelineKitCore
 
 /// Async waveform data generator for audio assets.
@@ -25,6 +25,7 @@ public actor WaveformProvider {
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     init() {
+#if canImport(UIKit)
         NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil,
@@ -32,6 +33,7 @@ public actor WaveformProvider {
         ) { [weak self] _ in
             Task { await self?.purge() }
         }
+#endif
     }
 
     // MARK: - Public

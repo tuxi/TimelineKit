@@ -1,15 +1,27 @@
 import Foundation
 import TimelineKitCore
-import TimelineKitRender
 
-// MARK: - timelinekit-mcp
-//
-// V8 目标：
-// - MCP (Model Context Protocol) server，供 Claude Code / Codex / 端侧 code-agent 调用
-// - 暴露少量稳定高层工具（inspect / import_media / apply_edits / render / thumbnail / validate）
-// - 不暴露底层任意命令
-//
-// 当前状态：骨架（M6 正式实现）
+log("timelinekit-mcp v\(timelineKitCoreVersion)")
 
-print("TimelineKit MCP Server v\(timelineKitCoreVersion)")
-print("Status: skeleton — implementation pending (M6)")
+let srv = MCPServer()
+
+// Use FileHandle for non-buffered stdin reading
+let stdin = FileHandle.standardInput
+stdin.readabilityHandler = { handle in
+    let data = handle.availableData
+    guard !data.isEmpty else {
+        // EOF — stdin closed
+        log("stdin closed")
+        stdin.readabilityHandler = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { exit(0) }
+        return
+    }
+    // Process each line in the data
+    let text = String(data: data, encoding: .utf8) ?? ""
+    for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+        guard let lineData = line.data(using: .utf8) else { continue }
+        Task { @MainActor in await srv.process(data: lineData) }
+    }
+}
+
+dispatchMain()

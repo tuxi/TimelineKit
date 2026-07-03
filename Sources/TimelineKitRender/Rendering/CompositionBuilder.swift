@@ -757,7 +757,7 @@ public actor CompositionBuilder {
         if mainInsertedAny && zeroToMain.duration >= minDur {
             let inst = AVMutableVideoCompositionInstruction()
             inst.timeRange       = zeroToMain
-            inst.backgroundColor = UIColor.black.cgColor
+            inst.backgroundColor = CGColor(gray: 0, alpha: 1)
             // overlay 在下，main 在上（layerInstructions 数组顺序：先=底，后=顶）
             var layers: [AVMutableVideoCompositionLayerInstruction] = []
             if let overlay = overlayLayerInstruction { layers.append(overlay) }
@@ -770,7 +770,7 @@ public actor CompositionBuilder {
         if mainToTotal.duration >= minDur {
             let inst = AVMutableVideoCompositionInstruction()
             inst.timeRange       = mainToTotal
-            inst.backgroundColor = UIColor.black.cgColor
+            inst.backgroundColor = CGColor(gray: 0, alpha: 1)
             // 只挂 overlay 层；若 overlay 已不覆盖该范围，AVFoundation 用 backgroundColor 黑屏
             if let overlay = overlayLayerInstruction,
                overlayMaxEnd > mainVideoEnd.seconds {
@@ -785,7 +785,7 @@ public actor CompositionBuilder {
         if result.isEmpty {
             let inst = AVMutableVideoCompositionInstruction()
             inst.timeRange       = CMTimeRange(start: .zero, duration: totalDuration)
-            inst.backgroundColor = UIColor.black.cgColor
+            inst.backgroundColor = CGColor(gray: 0, alpha: 1)
             inst.layerInstructions = []
             result.append(inst)
         }
@@ -2223,21 +2223,4 @@ public enum SubtitleFrameBuilder {
     }
 }
 
-// MARK: - UIColor hex init
-
-private extension UIColor {
-    convenience init?(hex: String) {
-        var h = hex.trimmingCharacters(in: .init(charactersIn: "#"))
-        guard h.count == 6 || h.count == 8 else { return nil }
-        if h.count == 6 { h += "FF" }
-        var int: UInt64 = 0
-        guard Scanner(string: h).scanHexInt64(&int) else { return nil }
-        self.init(
-            red:   CGFloat((int >> 24) & 0xFF) / 255,
-            green: CGFloat((int >> 16) & 0xFF) / 255,
-            blue:  CGFloat((int >>  8) & 0xFF) / 255,
-            alpha: CGFloat( int        & 0xFF) / 255
-        )
-    }
-}
 #endif

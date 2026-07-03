@@ -1,9 +1,8 @@
 import TimelineKitCore
-#if canImport(UIKit)
+#if canImport(AVFoundation)
 import AVFoundation
 import CoreImage
 import CoreVideo
-import UIKit
 
 /// Converts a static/animated image segment into a local MP4 for AVMutableComposition.
 ///

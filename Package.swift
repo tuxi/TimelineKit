@@ -83,11 +83,11 @@ let package = Package(
         // MARK: - V8 Executable targets
         .executableTarget(
             name: "TimelineKitCLI",
-            dependencies: ["TimelineKitCore", "TimelineKitRender"]
+            dependencies: ["TimelineKitCore", "TimelineKitRender", "TimelineKitUIShared"]
         ),
         .executableTarget(
             name: "TimelineKitMCP",
-            dependencies: ["TimelineKitCore", "TimelineKitRender"]
+            dependencies: ["TimelineKitCore", "TimelineKitRender", "TimelineKitUIShared"]
         ),
 
         // MARK: - Umbrella target (backward compatibility)
