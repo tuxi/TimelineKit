@@ -214,7 +214,7 @@ Design notes and versioned specs live in [`docs/`](docs/). Start with:
 Add the package through Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/<owner>/TimelineKit.git", branch: "main")
+.package(url: "https://github.com/tuxi/TimelineKit.git", branch: "main")
 ```
 
 ### Choose your dependency
