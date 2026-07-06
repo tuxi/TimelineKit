@@ -370,9 +370,12 @@ private struct ThumbnailTile: View {
         }
         .clipped()
         .task(id: url.path + "_\(Int(time * 10))") {
-            image = await ThumbnailProvider.shared.thumbnail(
+            let cgImage = await ThumbnailProvider.shared.thumbnail(
                 for: url, isImage: false, at: time, size: size
             )
+            if let cgImage {            
+                image = UIImage(cgImage: cgImage)
+            }
         }
     }
 }

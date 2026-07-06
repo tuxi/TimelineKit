@@ -2049,7 +2049,7 @@ private final class ThumbnailTiledLayer: CATiledLayer, @unchecked Sendable {
             guard let layer = ref.value, let img else { return }
             let curGen = layer.stateLock.withLock { $0.generation }
             guard curGen == expectedGeneration else { return }
-            layer.tileImageCache.setObject(img, forKey: tileIndex as NSNumber)
+            layer.tileImageCache.setObject(UIImage(cgImage: img), forKey: tileIndex as NSNumber)
             await MainActor.run {
                 ref.value?.setNeedsDisplay(tileRect)
             }

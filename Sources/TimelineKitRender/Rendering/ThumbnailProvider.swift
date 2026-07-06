@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 #if canImport(AVFoundation)
 import AVFoundation
 import CoreMedia
