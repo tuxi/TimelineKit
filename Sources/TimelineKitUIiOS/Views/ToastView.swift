@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// Toast 的配置模型
-public struct ToastConfig: Equatable {
+struct ToastConfig: Equatable {
     let message: String
     let icon: String?
     let style: ToastStyle
@@ -48,7 +48,7 @@ public struct ToastConfig: Equatable {
 /// 全局单例管理器
 @MainActor
 @Observable
-public class ToastContext {
+class ToastContext {
     public static let shared = ToastContext()
     
     var currentToast: ToastConfig?
