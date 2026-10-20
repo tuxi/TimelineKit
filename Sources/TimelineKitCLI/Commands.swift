@@ -15,6 +15,7 @@ enum Commands {
           inspect <timeline.json>                    View timeline summary
           import-media <file1> <file2>... [options]   Create draft from media files
           export-json <draft.json> [--output out]     Export to server JSON format
+          apply-plan <timeline.json> --plan plan.json --execution-id id [--dry-run]
           render <draft.json> --output out.mp4         Render timeline to video (iOS)
           thumbnail <draft.json> --time 3.2            Generate thumbnail (iOS)
           waveform <audio.m4a>                         Generate waveform data (iOS)
@@ -28,6 +29,9 @@ enum Commands {
           --canvas-width <px>    Canvas width (default: 720)
           --canvas-height <px>   Canvas height (default: 1280)
           --image-duration <s>   Default duration for images (default: 3.0)
+          --plan <path>          AgentEditPlan JSON for apply-plan
+          --execution-id <id>    Stable idempotency key for apply-plan
+          --dry-run              Preview apply-plan without writing the timeline
         """)
         fflush(stdout)
     }
@@ -97,6 +101,27 @@ enum Commands {
             }
             print(jsonStr)
         }
+    }
+
+    // MARK: apply-plan
+
+    @MainActor
+    static func applyPlan(_ opts: Options) async throws {
+        guard let path = opts.input, let planPath = opts.plan else { CLI.fail(1, "apply-plan requires input and --plan") }
+        let timeline = try JSONDecoder().decode(EditorTimeline.self, from: Data(contentsOf: resolve(path)))
+        let plan = try JSONDecoder().decode(AgentEditPlan.self, from: Data(contentsOf: resolve(planPath)))
+        if opts.dryRun {
+            let preview = try AgentEditEngine.preview(plan: plan, timeline: timeline)
+            CLI.ok(["dryRun": true, "planHash": preview.planHash, "externalPlanID": plan.externalPlanID ?? NSNull(), "externalPlanHash": plan.externalPlanHash ?? NSNull(), "timelineVersion": preview.resultingTimelineVersion, "duration": preview.timeline.duration])
+            return
+        }
+        guard let executionID = opts.executionID, !executionID.isEmpty else { CLI.fail(1, "apply-plan requires --execution-id") }
+        let result = try await AgentEditEngine.apply(plan: plan, timeline: timeline, executionID: executionID, executionStore: InMemoryAgentExecutionStore())
+        if result.didApply {
+            let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+            try encoder.encode(result.timeline).write(to: resolve(path), options: .atomic)
+        }
+        CLI.ok(["applied": result.applied, "replayed": result.replayed, "wroteTimeline": result.didApply, "executionID": result.executionID, "planHash": result.planHash, "timelineVersion": result.timelineVersion, "externalPlanID": result.externalPlanID ?? NSNull(), "externalPlanHash": result.externalPlanHash ?? NSNull()])
     }
 
     // MARK: render
@@ -204,6 +229,9 @@ struct Options {
     let canvasHeight: Int
     let imageDuration: Double
     let urls: [String]
+    let plan: String?
+    let executionID: String?
+    let dryRun: Bool
 
     init(args: [String]) {
         func opt(_ name: String) -> String? {
@@ -215,12 +243,16 @@ struct Options {
 
         var positional: [String] = []
         var skip = false
-        for (i, arg) in args.enumerated() {
+        for arg in args {
             if skip { skip = false; continue }
+            if arg == "--dry-run" { continue }
             if arg.hasPrefix("--") { if !arg.contains("=") { skip = true }; continue }
             positional.append(arg)
         }
         self.urls = positional
+        self.plan = opt("plan")
+        self.executionID = opt("execution-id")
+        self.dryRun = args.contains("--dry-run")
         self.input  = opt("input")  ?? positional.first
         self.output = opt("output") ?? opt("o")
         self.resolution = opt("resolution") ?? "1080p"

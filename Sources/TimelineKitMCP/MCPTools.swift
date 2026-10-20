@@ -9,6 +9,7 @@ struct MCPParameter: Sendable {
     let name: String
     let description: String
     let type: String
+    var required: Bool = true
     var schema: [String: JSONValue] {
         ["type": .string(type), "description": .string(description)]
     }
@@ -20,7 +21,9 @@ struct MCPTool: @unchecked Sendable {
     let parameters: [String: MCPParameter]
     let execute: @MainActor @Sendable ([String: JSONValue]) async throws -> MCPToolResult
 
-    var requiredParams: [String] { Array(parameters.keys) }
+    var requiredParams: [String] {
+        parameters.filter { $0.value.required }.keys.sorted()
+    }
 }
 
 struct MCPToolResult: Sendable {
@@ -65,7 +68,71 @@ private func jsonString(from dict: [String: Any]) -> String {
 // MARK: - Tool Registry
 
 enum MCPTools {
-    static let all: [MCPTool] = [inspect, importMedia, applyEdits, render, thumbnail, validate]
+    private static let agentExecutionStore = InMemoryAgentExecutionStore()
+    static let all: [MCPTool] = [inspect, importMedia, applyEdits, applyEditPlan, render, thumbnail, validate]
+
+    // MARK: apply_edits / apply_edit_plan
+    //
+    // `apply_edits` is the V8 standard MCP name. `apply_edit_plan` remains a
+    // compatibility alias. Both use the exact same schema and handler.
+
+    private static let applyPlanParameters: [String: MCPParameter] = [
+        "path": MCPParameter(name: "path", description: "Path to the timeline JSON", type: "string"),
+        "plan": MCPParameter(name: "plan", description: "AgentEditPlan object", type: "object"),
+        "execution_id": MCPParameter(name: "execution_id", description: "Stable retry key for this apply; required unless dry_run is true", type: "string", required: false),
+        "dry_run": MCPParameter(name: "dry_run", description: "Preview without writing the timeline", type: "boolean", required: false)
+    ]
+
+    private static func makeApplyPlanTool(name: String, description: String) -> MCPTool {
+        MCPTool(name: name, description: description, parameters: applyPlanParameters) { args in
+            try await executeApplyPlan(args)
+        }
+    }
+
+    @MainActor
+    private static func executeApplyPlan(_ args: [String: JSONValue]) async throws -> MCPToolResult {
+        guard let path = args["path"]?.stringValue else { throw MCPError(-32602, "Missing 'path' parameter") }
+        guard let planValue = args["plan"], let planData = try? JSONEncoder().encode(planValue),
+              let plan = try? JSONDecoder().decode(AgentEditPlan.self, from: planData) else { throw MCPError(-32602, "Invalid 'plan' object") }
+        let timeline = try readTimeline(from: path)
+        if args["dry_run"]?.boolValue == true {
+            let preview = try AgentEditEngine.preview(plan: plan, timeline: timeline)
+            return .text(jsonString(from: ["dryRun": true, "planHash": preview.planHash, "externalPlanID": plan.externalPlanID ?? NSNull(), "externalPlanHash": plan.externalPlanHash ?? NSNull(), "timelineVersion": preview.resultingTimelineVersion, "duration": preview.timeline.duration]))
+        }
+        guard let executionID = args["execution_id"]?.stringValue, !executionID.isEmpty else { throw MCPError(-32602, "Missing 'execution_id' parameter") }
+        let result = try await AgentEditEngine.apply(plan: plan, timeline: timeline, executionID: executionID, executionStore: agentExecutionStore)
+        var wroteTimeline = false
+        var repairedReplay = false
+        if result.didApply {
+            try writeTimeline(result.timeline, to: path)
+            wroteTimeline = true
+        } else if result.replayed {
+            // Core records before the adapter writes. If the first write failed,
+            // a retry is a replay whose stored result is already authoritative.
+            // Repair only when the file is still exactly at the plan's base
+            // revision; never overwrite a timeline that moved on.
+            let currentVersion = AgentEditPlan.timelineVersion(for: timeline)
+            if currentVersion != result.timelineVersion {
+                guard currentVersion == plan.baseTimelineVersion else {
+                    throw MCPError(-32603, "Execution replay requires reconciliation: timeline diverged from both base and result revisions")
+                }
+                try writeTimeline(result.timeline, to: path)
+                wroteTimeline = true
+                repairedReplay = true
+            }
+        }
+        return .text(jsonString(from: ["applied": result.applied, "replayed": result.replayed, "wroteTimeline": wroteTimeline, "repairedReplay": repairedReplay, "executionID": result.executionID, "planHash": result.planHash, "timelineVersion": result.timelineVersion, "externalPlanID": result.externalPlanID ?? NSNull(), "externalPlanHash": result.externalPlanHash ?? NSNull()]))
+    }
+
+    static let applyEdits = makeApplyPlanTool(
+        name: "timelinekit.apply_edits",
+        description: "Preview or atomically apply a versioned AgentEditPlan. Commands include trim, delete, move, split(newSegmentID), addSubtitle(segmentID), and roughCut(materialID, ordered sourceRanges, stable segmentIDs). planHash is TimelineKit's local normalized-command hash; external approval hashes are only carried through."
+    )
+
+    static let applyEditPlan = makeApplyPlanTool(
+        name: "timelinekit.apply_edit_plan",
+        description: "Compatibility alias for timelinekit.apply_edits. Same schema and handler; prefer timelinekit.apply_edits."
+    )
 
     // MARK: inspect
 
@@ -118,78 +185,6 @@ enum MCPTools {
                 "duration": timeline.duration, "tracks": timeline.tracks.count,
                 "totalSegments": timeline.tracks.reduce(0) { $0 + $1.segments.count }, "output": outputPath
             ]))
-        }
-    )
-
-    // MARK: apply_edits
-
-    static let applyEdits = MCPTool(
-        name: "timelinekit.apply_edits",
-        description: """
-        Apply edit operations to a timeline draft and save. Supported operations:
-          delete_segment (segment_id), trim_segment (segment_id, target_start, target_duration),
-          move_segment (segment_id, new_start), split_segment (segment_id, at_time),
-          add_text (playhead, text, duration), add_subtitle (playhead, text, duration),
-          set_audio_volume (segment_id, volume), add_transition (leading_id, trailing_id, duration)
-        """,
-        parameters: [
-            "path": MCPParameter(name: "path", description: "Path to the timeline JSON", type: "string"),
-            "operations": MCPParameter(name: "operations", description: "Array of edit operation objects", type: "array")
-        ],
-        execute: { args in
-            guard let path = args["path"]?.stringValue else { throw MCPError(-32602, "Missing 'path'") }
-            guard let ops = args["operations"]?.arrayValue, !ops.isEmpty else { throw MCPError(-32602, "Missing 'operations' array") }
-            let timeline = try readTimeline(from: path)
-            let doc = TimelineDocument(timeline: timeline)
-            var applied: [String] = []
-
-            for op in ops {
-                guard let o = op.objectValue, let opType = o["op"]?.stringValue else { continue }
-                switch opType {
-                case "delete_segment":
-                    if let sid = o["segment_id"]?.stringValue, let id = UUID(uuidString: sid) { doc.deleteSegment(id: id); applied.append("deleted:\(sid)") }
-                case "trim_segment":
-                    if let sid = o["segment_id"]?.stringValue, let id = UUID(uuidString: sid),
-                       let start = o["target_start"]?.stringValue.flatMap(Double.init),
-                       let dur = o["target_duration"]?.stringValue.flatMap(Double.init) {
-                        doc.trimSegment(id: id, newTargetRange: TimeRange(start: start, duration: dur)); applied.append("trimmed:\(sid)")
-                    }
-                case "move_segment":
-                    if let sid = o["segment_id"]?.stringValue, let id = UUID(uuidString: sid),
-                       let newStart = o["new_start"]?.stringValue.flatMap(Double.init) {
-                        doc.moveSegment(id: id, to: newStart); applied.append("moved:\(sid)")
-                    }
-                case "split_segment":
-                    if let sid = o["segment_id"]?.stringValue, let id = UUID(uuidString: sid),
-                       let at = o["at_time"]?.stringValue.flatMap(Double.init),
-                       let newID = doc.splitSegment(id: id, at: at) { applied.append("split:\(sid)->\(newID)") }
-                case "add_text":
-                    let playhead = o["playhead"]?.doubleValue ?? 0
-                    let text = o["text"]?.stringValue ?? "New text"
-                    let dur = o["duration"]?.doubleValue ?? 3.0
-                    let seg = EditorSegment(id: UUID(), materialID: UUID(), targetRange: TimeRange(start: playhead, duration: dur), content: .text(SegmentContent.TextContent(text: text, style: .default, position: .center, anchor: .center)))
-                    _ = doc.addSegmentAutoTrack(kind: .text, segment: seg); applied.append("text@\(playhead)")
-                case "add_subtitle":
-                    let playhead = o["playhead"]?.doubleValue ?? 0
-                    let text = o["text"]?.stringValue ?? "New subtitle"
-                    let dur = o["duration"]?.doubleValue ?? 3.0
-                    let seg = EditorSegment(id: UUID(), materialID: UUID(), targetRange: TimeRange(start: playhead, duration: dur), content: .subtitle(SegmentContent.SubtitleContent(text: text, style: .default)))
-                    _ = doc.addSegmentAutoTrack(kind: .subtitle, segment: seg); applied.append("subtitle@\(playhead)")
-                case "set_audio_volume":
-                    if let sid = o["segment_id"]?.stringValue, let id = UUID(uuidString: sid),
-                       let vol = o["volume"]?.stringValue.flatMap(Double.init) { doc.setAudioVolume(segmentID: id, volume: vol); applied.append("volume:\(sid)=\(vol)") }
-                case "add_transition":
-                    if let lid = o["leading_id"]?.stringValue, let leading = UUID(uuidString: lid),
-                       let tid = o["trailing_id"]?.stringValue, let trailing = UUID(uuidString: tid),
-                       let dur = o["duration"]?.stringValue.flatMap(Double.init) {
-                        if let t = doc.addTransition(between: leading, and: trailing, type: .fade, duration: dur) { applied.append("transition:\(t.id)") }
-                    }
-                default: throw MCPError(-32602, "Unknown operation: \(opType)")
-                }
-            }
-
-            try writeTimeline(doc.timeline, to: path)
-            return .text(jsonString(from: ["applied": applied.count, "operations": applied, "timelineID": doc.timeline.id.uuidString, "duration": doc.timeline.duration]))
         }
     )
 

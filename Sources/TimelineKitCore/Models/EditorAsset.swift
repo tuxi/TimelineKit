@@ -65,6 +65,10 @@ public struct MaterialsPool: Sendable, Hashable {
         items.removeValue(forKey: id)
     }
 
-    public var all: [EditorAsset] { Array(items.values) }
+    /// Stable order is required for deterministic JSON snapshots and timeline
+    /// revision hashes. Dictionary iteration order is intentionally not exposed.
+    public var all: [EditorAsset] {
+        items.values.sorted { $0.id.uuidString < $1.id.uuidString }
+    }
     public var count: Int { items.count }
 }

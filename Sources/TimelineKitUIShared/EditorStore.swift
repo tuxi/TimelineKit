@@ -139,6 +139,10 @@ public final class EditorStore: @MainActor Identifiable {
 
     public func mutate(_ label: String, _ body: (inout EditorTimeline) -> Void) { document.mutate(label, body) }
     public func mutateSubtitle(_ label: String, _ body: (inout EditorTimeline) -> Void) { document.mutateSubtitle(label, body) }
+    /// Apply a complete externally-produced timeline as one undo unit.
+    public func applyExternalTimeline(_ newTimeline: EditorTimeline, label: String = "Agent 剪辑") {
+        document.applyExternalTimeline(newTimeline, label: label)
+    }
     public func undo() { document.undo() }
     public func redo() { document.redo() }
 

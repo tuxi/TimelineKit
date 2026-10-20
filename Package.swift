@@ -98,6 +98,18 @@ let package = Package(
             dependencies: ["TimelineKitCore", "TimelineKitRender"]
         ),
         .testTarget(
+            name: "TimelineKitCoreTests",
+            dependencies: ["TimelineKitCore"]
+        ),
+        .testTarget(
+            name: "TimelineKitMCPTests",
+            dependencies: ["TimelineKitMCP", "TimelineKitCore"]
+        ),
+        .testTarget(
+            name: "TimelineKitUISharedTests",
+            dependencies: ["TimelineKitUIShared", "TimelineKitCore"]
+        ),
+        .testTarget(
             name: "TimelineKitUISharedViewsTests",
             dependencies: ["TimelineKitUISharedViews", "TimelineKitRender"]
         ),

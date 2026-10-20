@@ -64,6 +64,13 @@ public final class TimelineDocument: Identifiable {
         redoStack.removeAll()
     }
 
+    /// Host integration point for a complete, already-validated timeline produced by
+    /// an external editor (for example `AgentEditEngine.apply`). This registers the
+    /// replacement as one undo unit; it does not persist or coordinate playback.
+    public func applyExternalTimeline(_ newTimeline: EditorTimeline, label: String = "Agent 剪辑") {
+        mutate(label) { $0 = newTimeline }
+    }
+
     // MARK: - Undo / Redo
 
     public func undo() {
@@ -117,8 +124,16 @@ public final class TimelineDocument: Identifiable {
 
     @discardableResult
     public func splitSegment(id: UUID, at time: Double) -> UUID? {
+        splitSegment(id: id, at: time, newSegmentID: UUID())
+    }
+
+    /// Deterministic variant used by AgentEditPlan preview/apply. The caller owns
+    /// the new UUID so preview and apply produce the same timeline structure.
+    @discardableResult
+    public func splitSegment(id: UUID, at time: Double, newSegmentID: UUID) -> UUID? {
         let minDur: Double = 0.2
-        guard let seg = timeline.segment(id: id),
+        guard newSegmentID != id, timeline.segment(id: newSegmentID) == nil,
+              let seg = timeline.segment(id: id),
               let trackIdx = timeline.tracks.firstIndex(where: { $0.segments.contains(where: { $0.id == id }) }),
               seg.targetRange.duration >= minDur * 2
         else { return nil }
@@ -136,7 +151,7 @@ public final class TimelineDocument: Identifiable {
             newSourceLeft  = TimeRange(start: src.start, duration: leftDur)
             newSourceRight = TimeRange(start: src.start + splitOffset, duration: rightDur)
         }
-        let rightID = UUID()
+        let rightID = newSegmentID
         mutate("分割片段") { tl in
             guard let si = tl.tracks[trackIdx].segments.firstIndex(where: { $0.id == id }) else { return }
             tl.tracks[trackIdx].segments[si].targetRange = newTargetLeft
@@ -200,8 +215,9 @@ public final class TimelineDocument: Identifiable {
                     finalRange = TimeRange(start: oldStart, duration: newTargetRange.duration)
                 }
                 tl.tracks[ti].segments[si].targetRange = finalRange
-                if let newStart = newSourceRangeStart, var sr = tl.tracks[ti].segments[si].sourceRange {
-                    sr.start = newStart; tl.tracks[ti].segments[si].sourceRange = sr
+                if let newStart = newSourceRangeStart {
+                    let speed = max(tl.tracks[ti].segments[si].speed, 0.001)
+                    tl.tracks[ti].segments[si].sourceRange = TimeRange(start: newStart, duration: finalRange.duration * speed)
                 }
                 let growthDelta = finalRange.end - oldEnd
                 if abs(growthDelta) > 0.001 {
@@ -216,8 +232,8 @@ public final class TimelineDocument: Identifiable {
             mutate("裁剪片段") { tl in
                 tl.updateSegment(id: id) { seg in
                     seg.targetRange = newTargetRange
-                    if let newStart = newSourceRangeStart, var sr = seg.sourceRange {
-                        sr.start = newStart; seg.sourceRange = sr
+                    if let newStart = newSourceRangeStart {
+                        seg.sourceRange = TimeRange(start: newStart, duration: newTargetRange.duration * max(seg.speed, 0.001))
                     }
                 }
             }
@@ -225,8 +241,8 @@ public final class TimelineDocument: Identifiable {
             mutateSubtitle("裁剪片段") { tl in
                 tl.updateSegment(id: id) { seg in
                     seg.targetRange = newTargetRange
-                    if let newStart = newSourceRangeStart, var sr = seg.sourceRange {
-                        sr.start = newStart; seg.sourceRange = sr
+                    if let newStart = newSourceRangeStart {
+                        seg.sourceRange = TimeRange(start: newStart, duration: newTargetRange.duration * max(seg.speed, 0.001))
                     }
                 }
             }

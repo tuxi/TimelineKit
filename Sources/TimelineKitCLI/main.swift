@@ -23,6 +23,7 @@ DispatchQueue.main.async {
             case "inspect":     try await Commands.inspect(opts)
             case "import-media": try await Commands.importMedia(opts)
             case "export-json":  try await Commands.exportJSON(opts)
+            case "apply-plan":   try await Commands.applyPlan(opts)
             case "render":       try await Commands.render(opts)
             case "thumbnail":    try await Commands.thumbnail(opts)
             case "waveform":     try await Commands.waveform(opts)

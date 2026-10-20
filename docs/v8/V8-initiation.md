@@ -282,7 +282,7 @@ timelinekit validate draft.timelinekit.json
 |---|---|---|
 | `timelinekit.inspect` | timeline path / media path | timeline summary / media metadata |
 | `timelinekit.import_media` | media URLs, canvas, image duration | draft timeline path + summary |
-| `timelinekit.apply_edits` | timeline path + edit operations JSON | new timeline path + diff summary |
+| `timelinekit.apply_edits` | timeline path + `AgentEditPlan` JSON (`apply_edit_plan` alias) | new timeline path + diff summary |
 | `timelinekit.render` | timeline path + export config | mp4 path + render summary |
 | `timelinekit.thumbnail` | timeline path + time | image path |
 | `timelinekit.validate` | timeline path | validation report |
@@ -296,7 +296,7 @@ timelinekit validate draft.timelinekit.json
 Agent：
 
 1. 调 `timelinekit.import_media` 创建草稿。
-2. 调 `timelinekit.apply_edits` 添加文本轨、字幕轨、转场、动画。
+2. 调 `timelinekit.apply_edits` 以 `AgentEditPlan` 批量提交粗剪/字幕命令。
 3. 调 `timelinekit.validate` 检查素材缺失、重叠、越界。
 4. 调 `timelinekit.render` 导出 MP4。
 5. 用户如果不满意，可打开 iOS/macOS UI 继续编辑同一个 timeline 草稿。

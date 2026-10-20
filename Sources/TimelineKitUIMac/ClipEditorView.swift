@@ -1,5 +1,6 @@
 #if canImport(AppKit)
 import SwiftUI
+import AppKit
 import AVFoundation
 import UniformTypeIdentifiers
 import TimelineKitCore
@@ -48,6 +49,23 @@ public struct ClipEditorView: View {
         _store = State(initialValue: EditorStore(timeline: timeline))
     }
     
+    /// Compatibility for embedders that already own an `EditorStore` and a
+    /// preloaded timeline. The timeline is mirrored into a stable single-project
+    /// `.tlkbundle` so the library-driven shell can open it.
+    @available(*, deprecated, message: "Use the library-driven initializer.")
+    public init(
+        store: EditorStore,
+        onDraftSave: ((UUID, EditorTimeline) -> Void)? = nil,
+        onExport: ((Data, URL, NSImage) -> Void)? = nil
+    ) {
+        self.onDraftSave = onDraftSave
+        _store = State(initialValue: store)
+        if let embedded = try? TimelineEmbeddedLibrary.openOrCreate(for: store.timeline) {
+            _libraryStore = State(initialValue: embedded.store)
+            _activeProjectID = State(initialValue: embedded.project.id)
+        }
+    }
+
     public var body: some View {
         MacEditorShellRepresentable(
             store: store,
@@ -285,7 +303,20 @@ public struct ClipEditorView: View {
         let draftID = store.document.id
         let timeline = store.timeline
         _ = DraftStore.save(timeline)
+        persistActiveProject()
         onDraftSave?(draftID, timeline)
+    }
+
+    /// Compatibility bridge only: keep the embedded single-project bundle in sync
+    /// with the host-owned EditorStore. The final library-driven shell removes this
+    /// double write and makes .tlkproj the sole timeline source.
+    private func persistActiveProject() {
+        guard let id = activeProjectID, libraryStore.library != nil else { return }
+        var project = LibraryProject(id: id, name: "Embedded Project", timeline: store.timeline)
+        if let existing = libraryStore.projects.first(where: { $0.id == id }) {
+            project.name = existing.name
+        }
+        _ = try? libraryStore.saveProject(project)
     }
 }
 

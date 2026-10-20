@@ -63,6 +63,7 @@ enum JSONValue: Codable, Sendable {
     var intValue: Int? { if case .int(let v) = self { return v } else { return nil } }
     var objectValue: [String: JSONValue]? { if case .object(let v) = self { return v } else { return nil } }
     var arrayValue: [JSONValue]? { if case .array(let v) = self { return v } else { return nil } }
+    var boolValue: Bool? { if case .bool(let v) = self { return v } else { return nil } }
     var doubleValue: Double? {
         if case .int(let v) = self { return Double(v) }
         if case .double(let v) = self { return v }

@@ -22,25 +22,78 @@ public struct ClipEditorView: View {
     @State private var activeToolCategory: EditorToolCategory? = nil
     @State private var coordinator = CompositionCoordinator()
     @State private var draftStore  = DraftStore()
+    @State private var lastSavedProjectVersion: String?
     private let onExport: ((Data, URL, UIImage) -> Void)?
     private let onDraftSave: ((UUID, EditorTimeline) -> Void)?
+    private let onProjectSave: ((LibraryProject) -> Void)?
+    private let onPersistenceError: ((Error) -> Void)?
+    private let persistence: EditorPersistenceMode
+    private let editorAccessory: ((EditorStore) -> AnyView)?
+    private let projectName: String
 
     private var transitionEditContext: TransitionEditContext? { store.selection.editingTransitionContext }
 
     /// 编辑页（由项目页驱动）：接收已打开的资源库与目标项目。
     /// 项目页负责库/项目管理（新建/重命名/删除等）；本页专注编辑当前项目，
     /// 退出时把 timeline 回库（persistActiveProject）。
+    ///
+    /// `editorStore` is optional for host-owned Agent integration. When supplied,
+    /// the view renders, plays, saves, and undoes on this exact instance; it is
+    /// never copied or recreated.
+    ///
+    /// `editorAccessory` is rendered as a trailing toolbar item and receives the
+    /// same `EditorStore`. The host can return a button that presents its own
+    /// Agent sheet; the editor does not wrap the host in another navigation stack.
     public init(
         libraryStore: TimelineLibraryStore,
         project: LibraryProject,
+        editorStore: EditorStore? = nil,
+        persistence: EditorPersistenceMode = .draftStore,
+        editorAccessory: ((EditorStore) -> AnyView)? = nil,
+        onProjectSave: ((LibraryProject) -> Void)? = nil,
+        onPersistenceError: ((Error) -> Void)? = nil,
         onDraftSave: ((UUID, EditorTimeline) -> Void)? = nil,
         onExport: ((Data, URL, UIImage) -> Void)? = nil
     ) {
         self.onDraftSave = onDraftSave
         self.onExport = onExport
-        _store = State(initialValue: EditorStore(timeline: project.timeline))
+        self.onProjectSave = onProjectSave
+        self.onPersistenceError = onPersistenceError
+        self.persistence = persistence
+        self.editorAccessory = editorAccessory
+        self.projectName = project.name
+        let resolvedStore = editorStore ?? EditorStore(timeline: project.timeline)
+        _store = State(initialValue: resolvedStore)
         _libraryStore = State(initialValue: libraryStore)
         _activeProjectID = State(initialValue: project.id)
+        _lastSavedProjectVersion = State(initialValue: AgentEditPlan.timelineVersion(for: resolvedStore.timeline))
+    }
+
+    /// Compatibility for embedders that already own an `EditorStore` and a
+    /// preloaded timeline. The timeline is mirrored into a stable single-project
+    /// `.tlkbundle` so media import and project persistence keep working.
+    @available(*, deprecated, message: "Pass a TimelineLibraryStore and LibraryProject instead.")
+    public init(
+        store: EditorStore,
+        onDraftSave: ((UUID, EditorTimeline) -> Void)? = nil,
+        onExport: ((Data, URL, UIImage) -> Void)? = nil
+    ) {
+        self.onDraftSave = onDraftSave
+        self.onExport = onExport
+        self.onProjectSave = nil
+        self.onPersistenceError = nil
+        self.persistence = .draftStore
+        self.editorAccessory = nil
+        self.projectName = "Embedded Project"
+        _store = State(initialValue: store)
+        _lastSavedProjectVersion = State(initialValue: AgentEditPlan.timelineVersion(for: store.timeline))
+        if let embedded = try? TimelineEmbeddedLibrary.openOrCreate(for: store.timeline) {
+            _libraryStore = State(initialValue: embedded.store)
+            _activeProjectID = State(initialValue: embedded.project.id)
+        } else {
+            _libraryStore = State(initialValue: TimelineLibraryStore())
+            _activeProjectID = State(initialValue: nil)
+        }
     }
 
     private let controlBarHeight: CGFloat  = 52
@@ -196,7 +249,9 @@ public struct ClipEditorView: View {
             store.coordinatorPlayer = coordinator.player
             store.coordinator       = coordinator
             coordinator.scheduleRebuild(timeline: store.timeline, immediate: true)
-            draftStore.bind(to: store)
+            if persistence == .draftStore {
+                draftStore.bind(to: store)
+            }
             // V5.1: 修正 TimelineImporter 把 audio.duration 设为 schema.duration
             // 的设计问题——异步加载真实音频文件时长并 cap 超出的 audio segment。
             Task { await store.normalizeAudioDurations() }
@@ -204,7 +259,9 @@ public struct ClipEditorView: View {
         }
         .onDisappear {
             saveDraftAndNotify()
-            draftStore.unbind()
+            if persistence == .draftStore {
+                draftStore.unbind()
+            }
         }
         .onChange(of: store.compositionVersion) { _, _ in
             // Only fires when video/audio/structure changes — subtitle mutations excluded (S-04).
@@ -265,7 +322,9 @@ public struct ClipEditorView: View {
                 Button {
                     dismiss()
                     saveDraftAndNotify()
-                    draftStore.unbind()
+                    if persistence == .draftStore {
+                        draftStore.unbind()
+                    }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 15, weight: .bold))
@@ -279,6 +338,9 @@ public struct ClipEditorView: View {
             // （多 ToolbarItem 在同 placement 的排序行为版本间有差异，单 HStack 可预测）。
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 8) {
+                    if let editorAccessory {
+                        editorAccessory(store)
+                    }
                     specButton
                     exportButton
                 }
@@ -347,21 +409,41 @@ public struct ClipEditorView: View {
     }
 
     private func saveDraftAndNotify() {
-        let draftID = DraftStore.save(store.timeline)
-        onDraftSave?(draftID, store.timeline)
-        // 项目回库：把当前 timeline 持久化到 .tlkbundle Projects/（对齐 macOS）。
-        persistActiveProject()
+        switch persistence {
+        case .draftStore:
+            let draftID = DraftStore.save(store.timeline)
+            onDraftSave?(draftID, store.timeline)
+            do {
+                _ = try persistActiveProject()
+            } catch {
+                onPersistenceError?(error)
+            }
+        case .library:
+            // .tlkproj is the only timeline source in library mode.
+            do {
+                if let project = try persistActiveProject() {
+                    onProjectSave?(project)
+                }
+            } catch {
+                onPersistenceError?(error)
+            }
+        }
     }
 
-    /// 把当前 timeline 写回活动项目（LibraryProject 落库）。静默失败——
-    /// DraftStore 快速恢复通道仍然有效。
-    private func persistActiveProject() {
-        guard let id = activeProjectID else { return }
-        var project = LibraryProject(id: id, name: "未命名项目", timeline: store.timeline)
+    /// 把当前 timeline 写回活动项目（LibraryProject 落库）。
+    /// `.library` 模式要求错误向上传播；`.draftStore` 兼容路径也通过回调报告。
+    @discardableResult
+    private func persistActiveProject() throws -> LibraryProject? {
+        guard let id = activeProjectID else { return nil }
+        let version = AgentEditPlan.timelineVersion(for: store.timeline)
+        guard version != lastSavedProjectVersion else { return nil }
+        var project = LibraryProject(id: id, name: projectName, timeline: store.timeline)
         if let existing = libraryStore.projects.first(where: { $0.id == id }) {
             project.name = existing.name
         }
-        _ = try? libraryStore.saveProject(project)
+        _ = try libraryStore.saveProject(project)
+        lastSavedProjectVersion = version
+        return project
     }
 
     // MARK: - Panel Overlay

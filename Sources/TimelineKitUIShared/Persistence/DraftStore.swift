@@ -66,6 +66,22 @@ public final class DraftStore: @unchecked Sendable {
         return timeline.id
     }
 
+    /// Throwing variant for host transaction boundaries. Callers that must coordinate
+    /// timeline persistence with an execution/undo record should use this instead of
+    /// the best-effort `save`.
+    @discardableResult
+    public static func saveThrowing(_ timeline: EditorTimeline) throws -> UUID {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let persistedTimeline = relativizeAssetURLsForPersistence(in: timeline)
+        let data = try encoder.encode(persistedTimeline)
+        let url = draftURL(for: timeline.id)
+        try FileManager.default.createDirectory(at: draftsDirectory,
+                                                withIntermediateDirectories: true)
+        try data.write(to: url, options: .atomic)
+        return timeline.id
+    }
+
     /// Delete the draft for a given timeline ID, and purge its cached asset files.
     public static func delete(draftID: UUID) {
         try? FileManager.default.removeItem(at: draftURL(for: draftID))
