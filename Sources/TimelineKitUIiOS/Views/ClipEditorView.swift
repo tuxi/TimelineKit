@@ -110,6 +110,9 @@ public struct ClipEditorView: View {
     // V5 fullscreen-preview-spec §3：全屏预览 fullScreenCover
     @State private var showFullScreenPreview = false
 
+    /// Forces the UIKit track canvas to re-apply an externally replaced timeline.
+    @State private var trackRefreshToken = 0
+
     public var body: some View {
         editorSheets(editorObservers(editorContent))
     }
@@ -142,7 +145,12 @@ public struct ClipEditorView: View {
                         }
 
                     ZStack(alignment: .topTrailing) {
-                        TrackEditorRepresentable(store: store, onEmptyTrackAdd: handleEmptyTrackAdd)
+                        TrackEditorRepresentable(
+                            store: store,
+                            timeline: store.timeline,
+                            refreshToken: trackRefreshToken,
+                            onEmptyTrackAdd: handleEmptyTrackAdd
+                        )
                             .frame(minHeight: trackMinHeight, maxHeight: .infinity)
 
                         // Fixed "+" button aligned with the main track row (below ruler).
@@ -266,6 +274,9 @@ public struct ClipEditorView: View {
         .onChange(of: store.compositionVersion) { _, _ in
             // Only fires when video/audio/structure changes — subtitle mutations excluded (S-04).
             coordinator.scheduleRebuild(timeline: store.timeline)
+            // Force the UIKit track canvas to re-apply the new timeline even when
+            // the change came from an external editor (Agent apply).
+            trackRefreshToken &+= 1
         }
         .onChange(of: store.selection.singleSelectedID) { _, newID in
             // v3 text-entry-spec §3.5: selecting a segment auto-switches the bottom toolbar
@@ -641,6 +652,12 @@ public struct ClipEditorView: View {
 /// Embeds ClipEditorViewController (UIKit) into SwiftUI.
 struct TrackEditorRepresentable: UIViewControllerRepresentable {
     var store: EditorStore
+    /// Passed by value so SwiftUI observes external timeline replacements
+    /// (for example an Agent batch) and calls updateUIViewController.
+    var timeline: EditorTimeline
+    /// Changes on every compositionVersion bump, guaranteeing updateUIViewController
+    /// runs for external timeline replacements.
+    var refreshToken: Int
     var onEmptyTrackAdd: ((UUID, EditorTrack.Kind) -> Void)?
 
     func makeUIViewController(context: Context) -> ClipEditorViewController {
@@ -651,7 +668,7 @@ struct TrackEditorRepresentable: UIViewControllerRepresentable {
 
     func updateUIViewController(_ vc: ClipEditorViewController, context: Context) {
         vc.onEmptyTrackAdd = onEmptyTrackAdd
-        vc.apply(timeline: store.timeline, selection: store.selection)
+        vc.apply(timeline: timeline, selection: store.selection)
     }
 }
 #endif

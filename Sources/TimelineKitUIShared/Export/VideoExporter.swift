@@ -709,21 +709,29 @@ public final class VideoExporter {
         let sourceTime = spec.sourceStartTime + localTime
         let nearStart = abs(compositionTime - segmentStart) < 0.12
         let nearEnd = abs(segmentEnd - compositionTime) < 0.12
-        print(
-            "[ExportVideoFrame] " +
-            "path=\(path) " +
-            "asset=\(spec.assetURL.lastPathComponent) " +
-            "compositionTime=\(formatDebugSeconds(compositionTime)) " +
-            "localTime=\(formatDebugSeconds(localTime)) " +
-            "sourceTime=\(formatDebugSeconds(sourceTime)) " +
-            "segmentStart=\(formatDebugSeconds(segmentStart)) " +
-            "segmentEnd=\(formatDebugSeconds(segmentEnd)) " +
-            "sourceStart=\(formatDebugSeconds(spec.sourceStartTime)) " +
-            "sourceEnd=\(formatDebugSeconds(spec.sourceStartTime + spec.timeRange.duration.seconds)) " +
-            "nearStart=\(nearStart) " +
-            "nearEnd=\(nearEnd) " +
-            "layerNil=true"
-        )
+        let compositionTimeText = formatDebugSeconds(compositionTime)
+        let localTimeText = formatDebugSeconds(localTime)
+        let sourceTimeText = formatDebugSeconds(sourceTime)
+        let segmentStartText = formatDebugSeconds(segmentStart)
+        let segmentEndText = formatDebugSeconds(segmentEnd)
+        let sourceStartText = formatDebugSeconds(spec.sourceStartTime)
+        let sourceEndText = formatDebugSeconds(spec.sourceStartTime + spec.timeRange.duration.seconds)
+        let fields: [String] = [
+            "[ExportVideoFrame]",
+            "path=\(path)",
+            "asset=\(spec.assetURL.lastPathComponent)",
+            "compositionTime=\(compositionTimeText)",
+            "localTime=\(localTimeText)",
+            "sourceTime=\(sourceTimeText)",
+            "segmentStart=\(segmentStartText)",
+            "segmentEnd=\(segmentEndText)",
+            "sourceStart=\(sourceStartText)",
+            "sourceEnd=\(sourceEndText)",
+            "nearStart=\(nearStart)",
+            "nearEnd=\(nearEnd)",
+            "layerNil=true",
+        ]
+        print(fields.joined(separator: " "))
     }
 
     nonisolated private static func formatDebugSeconds(_ seconds: Double) -> String {
