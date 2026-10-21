@@ -88,7 +88,6 @@ final class TrackCanvasView: UIView {
     private var mainTrackBackgroundView: UIView!
     private var trackRows: [UUID: TrackRowView] = [:]
     private var playheadLayer: CALayer!
-    private var lastVisibleWidth: CGFloat = 0
 
     /// Transition badges: keyed by "leadingID–trailingID" string for fast lookup.
     private var transitionBadges: [String: TransitionBadgeView] = [:]
@@ -154,7 +153,6 @@ final class TrackCanvasView: UIView {
 
     func configure(timeline: EditorTimeline, availableWidth: CGFloat) {
         self.timeline = timeline
-        lastVisibleWidth = availableWidth
         // V5.1 BUG 2: 空 timeline 走默认 pps，避免 fittedPPS 把 duration=0 膨胀为 0.1s
         // 导致 availableWidth/0.1 算出数千 pps，新增素材瞬间生成海量缩略图。
         if currentPixelsPerSecond == Self.minPixelsPerSecond {
@@ -284,32 +282,18 @@ final class TrackCanvasView: UIView {
     private func applyLayout(timeline: EditorTimeline) {
         let totalHeight = Self.rulerHeight + CGFloat(timeline.tracks.count) * (Self.trackHeight + Self.trackSpacing)
         let totalWidth  = layout.totalWidth + Self.rightPadding
-        // Fill the visible viewport as well as the timeline extent, so the main
-        // storyline band reaches the editor's right edge even for short projects.
-        let visibleWidth = (superview as? UIScrollView)?.bounds.width ?? 0
-        let immersiveWidth = max(totalWidth, visibleWidth)
-        let contentSize = CGSize(width: immersiveWidth, height: max(totalHeight, 200))
+        let contentSize = CGSize(width: totalWidth, height: max(totalHeight, 200))
 
         frame.size = contentSize
         if let sv = superview as? UIScrollView {
             sv.contentSize = contentSize
         }
 
-        rulerView.frame = CGRect(x: 0, y: 0, width: immersiveWidth, height: Self.rulerHeight)
+        rulerView.frame = CGRect(x: 0, y: 0, width: totalWidth, height: Self.rulerHeight)
         rulerView.configure(layout: layout)
-        updateMainTrackBackground(width: immersiveWidth)
+        updateMainTrackBackground(width: totalWidth)
 
         playheadLayer.frame.size = CGSize(width: 2, height: contentSize.height)
-    }
-
-    /// Called by the host controller when the viewport width changes (rotation,
-    /// split-view, sidebar resize). Keeping this separate from `configure`
-    /// avoids rebuilding track rows just to extend the immersive background.
-    func updateVisibleWidth(_ width: CGFloat) {
-        guard abs(width - lastVisibleWidth) > 0.5 else { return }
-        lastVisibleWidth = width
-        guard let timeline else { return }
-        applyLayout(timeline: timeline)
     }
 
     private func updateMainTrackBackground(width: CGFloat) {
