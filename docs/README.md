@@ -5,6 +5,7 @@
 | 版本 | 状态 | 适用阶段 | 说明 |
 |---|---|---|---|
 | [v1/](v1/) | ✅ 已锁基线 | P0 / P1 | 6 份架构+交互规范，渲染管线与交互底座 |
+| [v1.1/](v1.1/) | 探索 | 首发后增强 | iOS 手动版本管理：本地快照、切换、undo/revision 边界 |
 | [v2/](v2/) | 📝 规范在写 | 渲染特性层 | 转场 / 调色 / 导出三件 spec（V4 P2 沿用执行）|
 | [v3/](v3/) | ✅ 已上线 | 剪辑能力补齐层 | 多轨架构 / 文本入口 / 音频功能 / 本地 TTS |
 | [v4/](v4/) | 📝 规范定稿 | 体验升级层 | 样式保真 / 批量样式 / 多轨滚动 / 文本排版 / 音频与轨道控制 |
@@ -39,3 +40,11 @@
 | [subtitle-rendering-spec.md](v1/subtitle-rendering-spec.md) | 字幕图层层级、预览/导出双轨、样式映射、7 条验收标准 |
 | [audio-track-interaction-spec.md](v1/audio-track-interaction-spec.md) | 四类音频轨道、磁吸规则、手柄约束、8 条验收标准 |
 | [timeline-scrub-playback-spec.md](v1/timeline-scrub-playback-spec.md) | 播放头状态机、Scrub 节流、吸附触觉、10 条验收标准 |
+
+---
+
+## v1.1 文档清单
+
+| 文档 | 内容摘要 |
+|---|---|
+| [version-management-ios.md](v1.1/version-management-ios.md) | Dreamlog iOS 手动版本管理：`.tlkbundle/Versions` 存储、添加/切换/重命名/删除、活动版本与 `.tlkproj`、revision 与 undo 边界 |
