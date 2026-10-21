@@ -88,6 +88,7 @@ final class TrackCanvasView: UIView {
     private var trackRows: [UUID: TrackRowView] = [:]
     private var playheadLayer: CALayer!
     private var lastViewportWidth: CGFloat = 0
+    private var reorderContentWidth: CGFloat?
 
     /// Transition badges: keyed by "leadingID–trailingID" string for fast lookup.
     private var transitionBadges: [String: TransitionBadgeView] = [:]
@@ -299,7 +300,7 @@ final class TrackCanvasView: UIView {
         // when the project is shorter than the screen, while still extending to
         // the full scrollable content width for long timelines.
         let viewportWidth = (superview as? UIScrollView)?.bounds.width ?? 0
-        let immersiveWidth = max(totalWidth, viewportWidth)
+        let immersiveWidth = max(totalWidth, viewportWidth, reorderContentWidth ?? 0)
         let contentSize = CGSize(width: immersiveWidth, height: max(totalHeight, 200))
 
         frame.size = contentSize
@@ -320,6 +321,13 @@ final class TrackCanvasView: UIView {
     func updateViewportWidth(_ width: CGFloat) {
         guard abs(width - lastViewportWidth) > 0.5 else { return }
         lastViewportWidth = width
+        guard let timeline else { return }
+        applyLayout(timeline: timeline)
+    }
+
+    private func setReorderContentWidth(_ width: CGFloat?) {
+        guard reorderContentWidth != width else { return }
+        reorderContentWidth = width
         guard let timeline else { return }
         applyLayout(timeline: timeline)
     }
@@ -413,6 +421,9 @@ final class TrackCanvasView: UIView {
             }
             row.onAutoScroll = { [weak self] touchInWindow in
                 self?.handleAutoScroll(touchInWindow: touchInWindow)
+            }
+            row.onReorderContentWidth = { [weak self] width in
+                self?.setReorderContentWidth(width)
             }
             row.onEmptyTrackAdd = { [weak self] trackID, kind in
                 self?.onEmptyTrackAdd?(trackID, kind)
@@ -578,6 +589,9 @@ final class TrackRowView: UIView {
     var onEmptyTrackAdd: ((UUID, EditorTrack.Kind) -> Void)?
     /// Forwarded from SegmentBlockView → TrackCanvasView for edge auto-scroll.
     var onAutoScroll: ((CGPoint) -> Void)?
+    /// Temporarily expands the canvas content width while uniform reorder cards
+    /// need more room than the timeline itself. `nil` restores normal width.
+    var onReorderContentWidth: ((CGFloat?) -> Void)?
 
     // MARK: Reorder state (main track)
 
@@ -585,8 +599,19 @@ final class TrackRowView: UIView {
     private var reorderOrder: [UUID] = []
     private var draggingID: UUID? = nil
     private var reorderCardWidth: CGFloat = 80
-    private var reorderOffset: CGFloat = 0
+    private var reorderStartX: CGFloat = 0
     private let reorderGap: CGFloat = 6
+    private let reorderMinCardWidth: CGFloat = 56
+    private let reorderMaxCardWidth: CGFloat = 120
+
+    private var enclosingScrollView: UIScrollView? {
+        var candidate = superview
+        while let view = candidate {
+            if let scrollView = view as? UIScrollView { return scrollView }
+            candidate = view.superview
+        }
+        return nil
+    }
 
     // MARK: Free-drag state (attachment tracks)
 
@@ -836,29 +861,53 @@ final class TrackRowView: UIView {
 
     // MARK: - Reorder mode
 
+    // 主轨道长按重排
     private func beginReorder(draggingID: UUID, touchX: CGFloat) {
         guard !isReordering else { return }
         isReordering = true
         self.draggingID = draggingID
+        onScrollLock?(true)
 
         // Establish order from current start times
         reorderOrder = track.segments
             .sorted { $0.targetRange.start < $1.targetRange.start }
             .map { $0.id }
 
-        // Compute card width so all cards fit in the visible viewport
+        // Uniform cards, sized against the CURRENT scroll viewport. The cached
+        // `availableWidth` may be stale after rotation, split view, or sidebar
+        // changes; using it can push the left/right cards off screen.
         let count = max(1, reorderOrder.count)
         let totalGaps = CGFloat(count - 1) * reorderGap
-        let available = availableWidth - TrackCanvasView.leftPadding - TrackCanvasView.rightPadding
-        reorderCardWidth = max(40, floor((available - totalGaps) / CGFloat(count)))
+        let scrollView = enclosingScrollView
+        let viewportWidth = scrollView?.bounds.width ?? availableWidth
+        let available = max(1, viewportWidth - TrackCanvasView.leftPadding - TrackCanvasView.rightPadding)
+        let fittedWidth = floor((available - totalGaps) / CGFloat(count))
+        reorderCardWidth = fittedWidth.clamped(to: reorderMinCardWidth...reorderMaxCardWidth)
 
-        // Offset all cards so the dragged card stays centered under the finger,
-        // regardless of which segment was long-pressed (left or right side).
+        // Keep the long-pressed card under the finger. If the full uniform row
+        // fits in the visible viewport, clamp it so both ends remain visible;
+        // otherwise the edge auto-scroll below lets the user reach the rest.
         let draggingIdx = reorderOrder.firstIndex(of: draggingID) ?? 0
-        let defaultDraggedCenterX = TrackCanvasView.leftPadding
-            + CGFloat(draggingIdx) * (reorderCardWidth + reorderGap)
-            + reorderCardWidth / 2
-        reorderOffset = max(0, touchX - defaultDraggedCenterX)
+        let desiredStartX = touchX
+            - CGFloat(draggingIdx) * (reorderCardWidth + reorderGap)
+            - reorderCardWidth / 2
+        let totalWidth = CGFloat(count) * reorderCardWidth + totalGaps
+        // Keep reorder cards inside the row's content bounds. At t=0 the scroll
+        // view uses a half-width leading inset, so a negative content offset is
+        // the inset area, not part of the row.
+        let visibleMinX = max(0, scrollView?.contentOffset.x ?? 0)
+        let margin: CGFloat = 8
+        if totalWidth <= viewportWidth - margin * 2 {
+            let minStartX = visibleMinX + margin
+            let maxStartX = visibleMinX + viewportWidth - margin - totalWidth
+            reorderStartX = desiredStartX.clamped(to: minStartX...max(minStartX, maxStartX))
+            onReorderContentWidth?(nil)
+        } else {
+            // Long uniform rows are allowed to extend the scrollable content;
+            // edge auto-scroll can then reach cards outside the current viewport.
+            reorderStartX = max(0, desiredStartX)
+            onReorderContentWidth?(max(frame.width, reorderStartX + totalWidth + TrackCanvasView.rightPadding))
+        }
 
         // Elevate dragged card
         segmentViews[draggingID]?.layer.zPosition = 10
@@ -885,11 +934,16 @@ final class TrackRowView: UIView {
         let originX = (touchX - reorderCardWidth / 2).clamped(to: minOriginX ... maxOriginX)
         block.frame.origin.x = originX
 
+        // Edge auto-scroll while dragging. This reuses the canvas's existing
+        // trim auto-scroll path, so long reorder rows remain reachable without
+        // letting the scroll view's pan gesture fight the long-press.
+        onAutoScroll?(convert(CGPoint(x: touchX, y: bounds.midY), to: nil))
+
         // Slot detection from card center.
         // Symmetric threshold: the dragged card must pass the center of the
         // adjacent card before a swap triggers, in either direction.
         let center = originX + reorderCardWidth / 2
-        let baseX = TrackCanvasView.leftPadding + reorderOffset + reorderCardWidth / 2
+        let baseX = reorderStartX + reorderCardWidth / 2
         let rawFloat = (center - baseX) / (reorderCardWidth + reorderGap)
 
         guard let currentIdx = reorderOrder.firstIndex(of: draggingID) else { return }
@@ -925,7 +979,9 @@ final class TrackRowView: UIView {
 
         isReordering    = false
         self.draggingID = nil
-        reorderOffset   = 0
+        reorderStartX   = 0
+        onReorderContentWidth?(nil)
+        onScrollLock?(false)
 
         // Always restore to normal time-proportional layout immediately.
         // If the timeline actually changed, configure() will rebuild the rows and
@@ -967,7 +1023,9 @@ final class TrackRowView: UIView {
 
         isReordering    = false
         self.draggingID = nil
-        reorderOffset   = 0
+        reorderStartX   = 0
+        onReorderContentWidth?(nil)
+        onScrollLock?(false)
 
         // Reset transform first (same reason as restoreNormalLayout).
         for seg in track.segments { segmentViews[seg.id]?.transform = .identity }
@@ -989,7 +1047,7 @@ final class TrackRowView: UIView {
     }
 
     private func reorderX(for slot: Int) -> CGFloat {
-        TrackCanvasView.leftPadding + reorderOffset + CGFloat(slot) * (reorderCardWidth + reorderGap)
+        reorderStartX + CGFloat(slot) * (reorderCardWidth + reorderGap)
     }
 
     // MARK: - Free-drag mode (attachment tracks only)
