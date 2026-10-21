@@ -71,6 +71,7 @@ public final class ClipEditorViewController: UIViewController {
         super.viewDidLayoutSubviews()
         // Update content insets on every layout so playhead stays centered after rotation.
         updateScrollInsets()
+        canvas.updateVisibleWidth(scrollView.bounds.width)
         guard !didInitialLayout else { return }
         didInitialLayout = true
         canvas.configure(timeline: timeline, availableWidth: scrollView.bounds.width)

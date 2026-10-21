@@ -34,6 +34,11 @@ final class TrackCanvasView: UIView {
     /// 被 fittedPPS 算成 availableWidth/0.1 的巨大值导致新增素材爆缩略图。
     static let defaultPixelsPerSecond: CGFloat = 60
 
+    /// Immersive timeline chrome. The canvas and ruler stay transparent so the
+    /// editor's dark surface reads as one continuous background.
+    static let mainTrackBandColor = UIColor(white: 0.13, alpha: 1)
+    static let auxiliaryTrackColor = UIColor(white: 0.13, alpha: 1)
+
     /// Standard segment block visual parameters.
     enum SegmentVisuals {
         static let cornerRadius: CGFloat = 4
@@ -80,8 +85,10 @@ final class TrackCanvasView: UIView {
     private(set) var currentPixelsPerSecond: CGFloat = minPixelsPerSecond
 
     private var rulerView: RulerView!
+    private var mainTrackBackgroundView: UIView!
     private var trackRows: [UUID: TrackRowView] = [:]
     private var playheadLayer: CALayer!
+    private var lastVisibleWidth: CGFloat = 0
 
     /// Transition badges: keyed by "leadingID–trailingID" string for fast lookup.
     private var transitionBadges: [String: TransitionBadgeView] = [:]
@@ -121,7 +128,18 @@ final class TrackCanvasView: UIView {
     }
 
     private func setup() {
-        backgroundColor = UIColor(white: 0.1, alpha: 1)
+        // The editor controller owns the surface color. Canvas chrome must not
+        // paint a second background over it.
+        backgroundColor = .clear
+
+        // Full-width primary-storyline band. It sits behind the track rows so
+        // the main track reads as one continuous dark lane, while auxiliary
+        // track rows keep their existing rounded cards.
+        mainTrackBackgroundView = UIView()
+        mainTrackBackgroundView.backgroundColor = Self.mainTrackBandColor
+        mainTrackBackgroundView.isUserInteractionEnabled = false
+        addSubview(mainTrackBackgroundView)
+        sendSubviewToBack(mainTrackBackgroundView)
 
         rulerView = RulerView()
         addSubview(rulerView)
@@ -136,6 +154,7 @@ final class TrackCanvasView: UIView {
 
     func configure(timeline: EditorTimeline, availableWidth: CGFloat) {
         self.timeline = timeline
+        lastVisibleWidth = availableWidth
         // V5.1 BUG 2: 空 timeline 走默认 pps，避免 fittedPPS 把 duration=0 膨胀为 0.1s
         // 导致 availableWidth/0.1 算出数千 pps，新增素材瞬间生成海量缩略图。
         if currentPixelsPerSecond == Self.minPixelsPerSecond {
@@ -158,6 +177,7 @@ final class TrackCanvasView: UIView {
         layout = TrackLayout(duration: timeline.duration, pixelsPerSecond: currentPixelsPerSecond)
         applyLayout(timeline: timeline)
         for (_, row) in trackRows { row.relayout(layout: layout) }
+        updateMainTrackBackground(width: frame.width)
         updatePlayhead(time: playheadTime)
     }
 
@@ -171,6 +191,7 @@ final class TrackCanvasView: UIView {
         for track in timeline.tracks {
             trackRows[track.id]?.update(track: track, layout: layout, materialAssets: assetByID)
         }
+        updateMainTrackBackground(width: frame.width)
         rebuildTransitionBadges(timeline: timeline)
     }
 
@@ -263,17 +284,47 @@ final class TrackCanvasView: UIView {
     private func applyLayout(timeline: EditorTimeline) {
         let totalHeight = Self.rulerHeight + CGFloat(timeline.tracks.count) * (Self.trackHeight + Self.trackSpacing)
         let totalWidth  = layout.totalWidth + Self.rightPadding
-        let contentSize = CGSize(width: totalWidth, height: max(totalHeight, 200))
+        // Fill the visible viewport as well as the timeline extent, so the main
+        // storyline band reaches the editor's right edge even for short projects.
+        let visibleWidth = (superview as? UIScrollView)?.bounds.width ?? 0
+        let immersiveWidth = max(totalWidth, visibleWidth)
+        let contentSize = CGSize(width: immersiveWidth, height: max(totalHeight, 200))
 
         frame.size = contentSize
         if let sv = superview as? UIScrollView {
             sv.contentSize = contentSize
         }
 
-        rulerView.frame = CGRect(x: 0, y: 0, width: totalWidth, height: Self.rulerHeight)
+        rulerView.frame = CGRect(x: 0, y: 0, width: immersiveWidth, height: Self.rulerHeight)
         rulerView.configure(layout: layout)
+        updateMainTrackBackground(width: immersiveWidth)
 
         playheadLayer.frame.size = CGSize(width: 2, height: contentSize.height)
+    }
+
+    /// Called by the host controller when the viewport width changes (rotation,
+    /// split-view, sidebar resize). Keeping this separate from `configure`
+    /// avoids rebuilding track rows just to extend the immersive background.
+    func updateVisibleWidth(_ width: CGFloat) {
+        guard abs(width - lastVisibleWidth) > 0.5 else { return }
+        lastVisibleWidth = width
+        guard let timeline else { return }
+        applyLayout(timeline: timeline)
+    }
+
+    private func updateMainTrackBackground(width: CGFloat) {
+        guard let mainTrackID = timeline?.mainTrack?.id,
+              let mainRow = trackRows[mainTrackID] else {
+            mainTrackBackgroundView.isHidden = true
+            return
+        }
+        mainTrackBackgroundView.isHidden = false
+        mainTrackBackgroundView.frame = CGRect(
+            x: 0,
+            y: mainRow.frame.minY,
+            width: width,
+            height: mainRow.frame.height
+        )
     }
 
     private func rebuildTrackRows(timeline: EditorTimeline, availableWidth: CGFloat) {
@@ -359,6 +410,7 @@ final class TrackCanvasView: UIView {
             trackRows[track.id] = row
             yOffset += Self.trackHeight + Self.trackSpacing
         }
+        updateMainTrackBackground(width: frame.width)
     }
 
     // MARK: - Transition Badges
@@ -437,7 +489,7 @@ final class RulerView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = UIColor(white: 0.14, alpha: 1)
+        backgroundColor = .clear
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -547,8 +599,10 @@ final class TrackRowView: UIView {
         self.materialAssets  = materialAssets
         self.onTrimCommit   = onTrimCommit
         super.init(frame: .zero)
-        backgroundColor = UIColor(white: 0.13, alpha: 1)
-        layer.cornerRadius = 4
+        // The main row lets the full-width storyline band show through; auxiliary
+        // tracks keep their existing rounded card treatment.
+        backgroundColor = track.isMainTrack ? .clear : TrackCanvasView.auxiliaryTrackColor
+        layer.cornerRadius = track.isMainTrack ? 0 : TrackCanvasView.SegmentVisuals.cornerRadius
         buildSegments()
         refreshPendingHint()
     }
