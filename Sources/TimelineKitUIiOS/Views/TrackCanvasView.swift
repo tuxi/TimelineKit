@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import UIKit
+import AVFoundation
 import os
 import TimelineKitCore
 import TimelineKitRender
@@ -82,6 +83,9 @@ final class TrackCanvasView: UIView {
     private var timeline: EditorTimeline?
     private(set) var layout: TrackLayout = .empty
     private(set) var currentPixelsPerSecond: CGFloat = minPixelsPerSecond
+    /// Durations completed by async AVAsset.load(.duration), keyed by asset ID.
+    private var loadedSourceDurations: [UUID: Double] = [:]
+    private var loadingSourceDurationIDs: Set<UUID> = []
 
     private var rulerView: RulerView!
     private var mainTrackBackgroundView: UIView!
@@ -171,7 +175,6 @@ final class TrackCanvasView: UIView {
         rebuildTransitionBadges(timeline: timeline)
     }
 
-    @discardableResult
     func zoom(to pixelsPerSecond: CGFloat, playheadTime: Double) -> Void {
         guard let timeline else { return }
         currentPixelsPerSecond = pixelsPerSecond.clamped(to: Self.minPixelsPerSecond...Self.maxPixelsPerSecond)
@@ -240,7 +243,9 @@ final class TrackCanvasView: UIView {
         return set
     }
 
-    func time(at x: CGFloat) -> Double { layout.time(at: x) }
+    func time(at x: CGFloat) -> Double {
+        layout.time(at: x)
+    }
     func x(for time: Double) -> CGFloat { layout.x(for: time) }
 
     func segmentID(at point: CGPoint) -> UUID? {
@@ -268,6 +273,37 @@ final class TrackCanvasView: UIView {
             .map(\.targetRange.end)
             .max() ?? 0
         return max(timeline.duration, furthestSegmentEnd)
+    }
+
+    private static func isTimedAsset(_ asset: EditorAsset) -> Bool {
+        switch asset.type {
+        case .video, .audio, .generatedVideo, .voiceOver:
+            return true
+        case .image, .placeholder:
+            return false
+        }
+    }
+
+    /// Loads a duration asynchronously only when the importer did not provide one.
+    /// This replaces the deprecated synchronous `AVAsset.duration` access.
+    private func scheduleSourceDurationLoad(for assetID: UUID, url: URL) {
+        guard !loadingSourceDurationIDs.contains(assetID) else { return }
+        loadingSourceDurationIDs.insert(assetID)
+        Task { @MainActor [weak self] in
+            let asset = AssetCache.shared.asset(for: url)
+            let duration = try? await asset.load(.duration)
+            guard let self else { return }
+            self.loadingSourceDurationIDs.remove(assetID)
+            guard let duration, duration.isNumeric, duration.seconds > 0 else { return }
+            self.loadedSourceDurations[assetID] = duration.seconds
+            self.applyLoadedSourceDuration(duration.seconds, for: assetID)
+        }
+    }
+
+    private func applyLoadedSourceDuration(_ duration: Double, for assetID: UUID) {
+        for (_, row) in trackRows {
+            row.updateSourceDuration(duration, for: assetID)
+        }
     }
 
     /// Auto-scroll the timeline when a trim handle drag reaches the visible edge.
@@ -348,11 +384,14 @@ final class TrackCanvasView: UIView {
     }
 
     private func rebuildTrackRows(timeline: EditorTimeline, availableWidth: CGFloat) {
-        trackRows.values.forEach { $0.removeFromSuperview() }
+        trackRows.values.forEach {
+            $0.removeFromSuperview()
+        }
         trackRows.removeAll()
 
         // Pre-compute source durations for trim handle right-cap.
-        // Priority: AVURLAsset.duration (loaded file) > asset.nativeDuration (importer-set).
+        // Priority: asset.nativeDuration (importer-set) > async-loaded AVAsset duration.
+        // The deprecated synchronous AVAsset.duration is no longer used.
         // Rules:
         //   - ai_video             → nativeDuration = sceneRange.duration
         //   - image_3d / motion    → nativeDuration = sceneRange.duration
@@ -363,18 +402,15 @@ final class TrackCanvasView: UIView {
 
         var sourceDurationMap: [UUID: Double] = [:]
         for asset in allAssets {
-            if let url = asset.bestURL {
-                let avAsset = AssetCache.shared.asset(for: url)
-                let dur = avAsset.duration
-                if dur.isNumeric && dur.seconds > 0 {
-                    sourceDurationMap[asset.id] = dur.seconds
-                }
-            }
-            // Fallback: nativeDuration recorded at import time.
-            // Covers: image assets (no AVURLAsset video duration) and ai_video before
-            // the AVURLAsset has been loaded asynchronously.
-            if sourceDurationMap[asset.id] == nil, let nd = asset.nativeDuration, nd > 0 {
+            // Prefer the importer-recorded duration. It is synchronous and reliable
+            // for edited/generated assets. If it is missing, use a previously
+            // loaded async duration, or schedule one below.
+            if let nd = asset.nativeDuration, nd > 0 {
                 sourceDurationMap[asset.id] = nd
+            } else if let loaded = loadedSourceDurations[asset.id] {
+                sourceDurationMap[asset.id] = loaded
+            } else if let url = asset.bestURL, Self.isTimedAsset(asset) {
+                scheduleSourceDurationLoad(for: asset.id, url: url)
             }
         }
         // Static images have no nativeDuration — ensure their cap entry is nil.
@@ -612,6 +648,10 @@ final class TrackRowView: UIView {
         }
         return nil
     }
+    
+    private lazy var feedback: UIImpactFeedbackGenerator = {
+        return UIImpactFeedbackGenerator(style: .light, view: self)
+    }()
 
     // MARK: Free-drag state (attachment tracks)
 
@@ -755,6 +795,14 @@ final class TrackRowView: UIView {
         for (id, view) in segmentViews { view.isSelected = ids.contains(id) }
     }
 
+    /// Applies a duration loaded asynchronously after row construction.
+    func updateSourceDuration(_ duration: Double, for materialID: UUID) {
+        sourceDurations[materialID] = duration
+        for seg in track.segments where seg.materialID == materialID {
+            segmentViews[seg.id]?.sourceDuration = duration
+        }
+    }
+
     func segmentID(at point: CGPoint) -> UUID? {
         for (id, view) in segmentViews {
             if view.frame.contains(point) { return id }
@@ -867,6 +915,8 @@ final class TrackRowView: UIView {
         isReordering = true
         self.draggingID = draggingID
         onScrollLock?(true)
+        
+        feedback.impactOccurred()
 
         // Establish order from current start times
         reorderOrder = track.segments
@@ -962,6 +1012,8 @@ final class TrackRowView: UIView {
 
         reorderOrder.remove(at: currentIdx)
         reorderOrder.insert(draggingID, at: newSlot)
+        
+        feedback.impactOccurred()
 
         UIView.animate(withDuration: 0.15) {
             for (i, id) in self.reorderOrder.enumerated() {
