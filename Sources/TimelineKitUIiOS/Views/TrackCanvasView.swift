@@ -639,6 +639,8 @@ final class TrackRowView: UIView {
     private let reorderGap: CGFloat = 6
     private let reorderMinCardWidth: CGFloat = 56
     private let reorderMaxCardWidth: CGFloat = 120
+    private var reorderOverlay: UIView?
+    private var reorderCards: [UUID: UIView] = [:]
 
     private var enclosingScrollView: UIScrollView? {
         var candidate = superview
@@ -934,55 +936,119 @@ final class TrackRowView: UIView {
         let fittedWidth = floor((available - totalGaps) / CGFloat(count))
         reorderCardWidth = fittedWidth.clamped(to: reorderMinCardWidth...reorderMaxCardWidth)
 
-        // Keep the long-pressed card under the finger. If the full uniform row
-        // fits in the visible viewport, clamp it so both ends remain visible;
-        // otherwise the edge auto-scroll below lets the user reach the rest.
+        // Keep the long-pressed card under the finger. Do NOT clamp the whole
+        // row into the viewport: that moves the pressed card away from the
+        // finger and puts a different block under the touch.
         let draggingIdx = reorderOrder.firstIndex(of: draggingID) ?? 0
         let desiredStartX = touchX
             - CGFloat(draggingIdx) * (reorderCardWidth + reorderGap)
             - reorderCardWidth / 2
+        reorderStartX = max(0, desiredStartX)
         let totalWidth = CGFloat(count) * reorderCardWidth + totalGaps
-        // Keep reorder cards inside the row's content bounds. At t=0 the scroll
-        // view uses a half-width leading inset, so a negative content offset is
-        // the inset area, not part of the row.
-        let visibleMinX = max(0, scrollView?.contentOffset.x ?? 0)
-        let margin: CGFloat = 8
-        if totalWidth <= viewportWidth - margin * 2 {
-            let minStartX = visibleMinX + margin
-            let maxStartX = visibleMinX + viewportWidth - margin - totalWidth
-            reorderStartX = desiredStartX.clamped(to: minStartX...max(minStartX, maxStartX))
-            onReorderContentWidth?(nil)
-        } else {
-            // Long uniform rows are allowed to extend the scrollable content;
-            // edge auto-scroll can then reach cards outside the current viewport.
-            reorderStartX = max(0, desiredStartX)
-            onReorderContentWidth?(max(frame.width, reorderStartX + totalWidth + TrackCanvasView.rightPadding))
+        let requiredWidth = max(frame.width, reorderStartX + totalWidth + TrackCanvasView.rightPadding)
+        onReorderContentWidth?(requiredWidth)
+
+        // Reorder is rendered in a dedicated overlay. The original blocks stay
+        // in place (hidden) so their long-press gesture keeps receiving events;
+        // only the overlay cards move. This decouples drag coordinates from the
+        // timeline's time-proportional block layout.
+        let blockH = TrackCanvasView.trackHeight - TrackCanvasView.SegmentVisuals.blockVPadding * 2
+        let overlay = UIView(frame: CGRect(
+            x: 0,
+            y: frame.minY,
+            width: max(requiredWidth, superview?.bounds.width ?? requiredWidth),
+            height: frame.height
+        ))
+        overlay.backgroundColor = .clear
+        overlay.isUserInteractionEnabled = false
+        superview?.addSubview(overlay)
+        superview?.bringSubviewToFront(overlay)
+        reorderOverlay = overlay
+        reorderCards.removeAll()
+
+        for (i, id) in reorderOrder.enumerated() {
+            guard let block = segmentViews[id] else { continue }
+            let card = makeReorderCard(from: block, width: reorderCardWidth, height: blockH)
+            card.frame = CGRect(
+                x: reorderX(for: i),
+                y: TrackCanvasView.SegmentVisuals.blockVPadding,
+                width: reorderCardWidth,
+                height: blockH
+            )
+            overlay.addSubview(card)
+            reorderCards[id] = card
+            // Keep the original view alive for the active gesture; the overlay
+            // card replaces it visually.
+            block.alpha = 0.01
         }
 
-        // Elevate dragged card
-        segmentViews[draggingID]?.layer.zPosition = 10
+        reorderCards[draggingID]?.layer.zPosition = 1
 
         UIView.animate(withDuration: 0.2) {
             for (i, id) in self.reorderOrder.enumerated() {
-                guard let block = self.segmentViews[id] else { continue }
-                block.frame.origin.x = self.reorderX(for: i)
-                block.frame.size.width = self.reorderCardWidth
+                guard let card = self.reorderCards[id] else { continue }
+                card.frame.origin.x = self.reorderX(for: i)
+                card.frame.size.width = self.reorderCardWidth
                 if id == draggingID {
-                    block.transform = CGAffineTransform(scaleX: 1.0, y: 1.08)
-                    block.alpha = 0.85
+                    card.transform = CGAffineTransform(scaleX: 1.0, y: 1.08)
+                    card.alpha = 0.9
                 }
             }
         }
     }
 
+    private func makeReorderCard(from block: SegmentBlockView, width: CGFloat, height: CGFloat) -> UIView {
+        let card = UIView(frame: CGRect(x: 0, y: 0, width: width, height: height))
+        card.backgroundColor = block.backgroundColor ?? UIColor(white: 0.2, alpha: 1)
+        card.layer.cornerRadius = TrackCanvasView.SegmentVisuals.cornerRadius
+        card.clipsToBounds = true
+
+        if let spec = block.reorderThumbnailSpec() {
+            // One representative frame per card. Snapshotting the full tiled
+            // strip and squeezing it into a narrow card made the thumbnails
+            // unreadable and distorted.
+            let imageView = UIImageView(frame: card.bounds)
+            imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            imageView.contentMode = .scaleAspectFill
+            imageView.clipsToBounds = true
+            card.addSubview(imageView)
+            // Use the window's real screen scale. `traitCollection.displayScale`
+            // can be unresolved when the card is built off-window, which produced
+            // a 1x image and looked blurry after Retina upscaling.
+            let scale = max(2, window?.screen.scale ?? traitCollection.displayScale)
+            let pixelSize = CGSize(width: width * scale, height: height * scale)
+            Task { @MainActor in
+                if let image = await ThumbnailProvider.shared.thumbnail(
+                    for: spec.url,
+                    isImage: spec.isImage,
+                    at: spec.time,
+                    size: pixelSize
+                ) {
+                    imageView.image = UIImage(cgImage: image, scale: scale, orientation: .up)
+                }
+            }
+        } else if let text = block.reorderDisplayText, !text.isEmpty {
+            let label = UILabel(frame: card.bounds.insetBy(dx: 6, dy: 4))
+            label.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            label.text = text
+            label.textColor = .white
+            label.font = .systemFont(ofSize: 11, weight: .medium)
+            label.numberOfLines = 2
+            label.lineBreakMode = .byTruncatingTail
+            card.addSubview(label)
+        }
+
+        return card
+    }
+
     private func updateReorder(touchX: CGFloat) {
-        guard isReordering, let draggingID, let block = segmentViews[draggingID] else { return }
+        guard isReordering, let draggingID, let card = reorderCards[draggingID] else { return }
 
         // Move dragged card to follow finger
         let minOriginX = reorderX(for: 0)
         let maxOriginX = reorderX(for: reorderOrder.count - 1)
         let originX = (touchX - reorderCardWidth / 2).clamped(to: minOriginX ... maxOriginX)
-        block.frame.origin.x = originX
+        card.frame.origin.x = originX
 
         // Edge auto-scroll while dragging. This reuses the canvas's existing
         // trim auto-scroll path, so long reorder rows remain reachable without
@@ -1017,7 +1083,7 @@ final class TrackRowView: UIView {
 
         UIView.animate(withDuration: 0.15) {
             for (i, id) in self.reorderOrder.enumerated() {
-                guard id != draggingID, let b = self.segmentViews[id] else { continue }
+                guard id != draggingID, let b = self.reorderCards[id] else { continue }
                 b.frame.origin.x = self.reorderX(for: i)
             }
         }
@@ -1032,6 +1098,7 @@ final class TrackRowView: UIView {
         isReordering    = false
         self.draggingID = nil
         reorderStartX   = 0
+        removeReorderOverlay()
         onReorderContentWidth?(nil)
         onScrollLock?(false)
 
@@ -1076,6 +1143,7 @@ final class TrackRowView: UIView {
         isReordering    = false
         self.draggingID = nil
         reorderStartX   = 0
+        removeReorderOverlay()
         onReorderContentWidth?(nil)
         onScrollLock?(false)
 
@@ -1095,6 +1163,18 @@ final class TrackRowView: UIView {
                 block.alpha           = 1.0
                 block.layer.zPosition = 0
             }
+        }
+    }
+
+    private func removeReorderOverlay() {
+        reorderOverlay?.removeFromSuperview()
+        reorderOverlay = nil
+        reorderCards.removeAll()
+        for seg in track.segments {
+            guard let block = segmentViews[seg.id] else { continue }
+            block.alpha = 1.0
+            block.layer.zPosition = 0
+            block.transform = .identity
         }
     }
 
@@ -1287,6 +1367,12 @@ final class TrimHandleView: UIView {
 
 // MARK: - SegmentBlockView
 
+struct ReorderThumbnailSpec {
+    let url: URL
+    let isImage: Bool
+    let time: Double
+}
+
 final class SegmentBlockView: UIView {
     /// Stored at init so isSelected can swap between normal and brightened colors.
     private let unselectedBackgroundColor: UIColor
@@ -1428,7 +1514,9 @@ final class SegmentBlockView: UIView {
         configure()
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) {
+        fatalError()
+    }
 
     private func configure() {
         layer.cornerRadius = TrackCanvasView.SegmentVisuals.cornerRadius
@@ -1500,6 +1588,33 @@ final class SegmentBlockView: UIView {
         case .text(let c):    return c.text.trimmingCharacters(in: .whitespacesAndNewlines)
         case .subtitle(let c): return c.text.trimmingCharacters(in: .whitespacesAndNewlines)
         default:              return nil
+        }
+    }
+
+    /// A single representative frame for compact reorder cards. The full
+    /// ThumbnailStripView is intentionally not used here: squeezing a tiled
+    /// strip into a 56–120pt card makes its frames unreadable.
+    func reorderThumbnailSpec() -> ReorderThumbnailSpec? {
+        guard let url = asset?.bestURL else { return nil }
+        switch segment.content {
+        case .video:
+            let sourceStart = sourceRangeStart ?? segment.sourceRange?.start ?? 0
+            let sourceLength = sourceDuration ?? segment.sourceRange?.duration ?? currentRange.duration
+            let sampleOffset = min(1.0, max(0, sourceLength * 0.5))
+            return ReorderThumbnailSpec(url: url, isImage: false, time: sourceStart + sampleOffset)
+        case .image:
+            return ReorderThumbnailSpec(url: url, isImage: true, time: 0)
+        default:
+            return nil
+        }
+    }
+
+    var reorderDisplayText: String? {
+        switch segment.content {
+        case .text, .subtitle: return segmentDisplayText
+        case .audio:           return "音频"
+        case .video:           return "视频"
+        case .image:           return "图片"
         }
     }
 
