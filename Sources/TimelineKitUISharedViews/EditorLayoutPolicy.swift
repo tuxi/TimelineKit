@@ -159,6 +159,8 @@ public struct EditorLayoutDecision: Equatable, Sendable {
     public let activeOcclusionFrames: [CGRect]
     public let showsAuxiliaryPanel: Bool
     public let showsInspector: Bool
+    /// Preferred inline inspector width; zero when the form has no side panel.
+    public let auxiliaryPanelWidth: CGFloat
 
     public init(
         form: EditorLayoutForm,
@@ -170,7 +172,8 @@ public struct EditorLayoutDecision: Equatable, Sendable {
         activeFoldFrame: CGRect?,
         activeOcclusionFrames: [CGRect],
         showsAuxiliaryPanel: Bool,
-        showsInspector: Bool
+        showsInspector: Bool,
+        auxiliaryPanelWidth: CGFloat
     ) {
         self.form = form
         self.contentSize = contentSize
@@ -182,6 +185,7 @@ public struct EditorLayoutDecision: Equatable, Sendable {
         self.activeOcclusionFrames = activeOcclusionFrames
         self.showsAuxiliaryPanel = showsAuxiliaryPanel
         self.showsInspector = showsInspector
+        self.auxiliaryPanelWidth = auxiliaryPanelWidth
     }
 }
 
@@ -264,6 +268,14 @@ public enum EditorLayoutPolicy {
         let previewSize = CGSize(width: contentRect.width, height: previewHeight)
         let timelineSize = CGSize(width: contentRect.width, height: timelineHeight)
 
+        let auxiliaryPanelWidth: CGFloat
+        switch form {
+        case .mediumWorkspace, .wideWorkspace:
+            auxiliaryPanelWidth = min(340, max(220, contentRect.width * 0.34))
+        case .phone, .foldedWorkspace:
+            auxiliaryPanelWidth = 0
+        }
+
         return EditorLayoutDecision(
             form: form,
             contentSize: contentRect.size,
@@ -274,7 +286,8 @@ public enum EditorLayoutPolicy {
             activeFoldFrame: nil,
             activeOcclusionFrames: activeOcclusions,
             showsAuxiliaryPanel: form == .mediumWorkspace || form == .wideWorkspace,
-            showsInspector: form == .wideWorkspace
+            showsInspector: form == .wideWorkspace,
+            auxiliaryPanelWidth: auxiliaryPanelWidth
         )
     }
 
@@ -315,7 +328,8 @@ public enum EditorLayoutPolicy {
             activeFoldFrame: fold.frame,
             activeOcclusionFrames: activeOcclusions,
             showsAuxiliaryPanel: false,
-            showsInspector: false
+            showsInspector: false,
+            auxiliaryPanelWidth: 0
         )
     }
 

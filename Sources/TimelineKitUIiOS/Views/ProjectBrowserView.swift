@@ -15,54 +15,51 @@ public struct ProjectBrowserView: View {
     @State private var deleteTarget: LibraryProject?
     @State private var errorMessage: String?
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
-    ]
-
     public init(libraryStore: TimelineLibraryStore) {
         self.libraryStore = libraryStore
     }
 
     public var body: some View {
-        ScrollView {
-            if libraryStore.projects.isEmpty {
-                emptyState
-            } else {
-                LazyVGrid(columns: columns, spacing: 14) {
-                    ForEach(libraryStore.projects) { project in
-                        NavigationLink(value: project.id) {
-                            ProjectCardView(project: project)
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button {
-                                renameTarget = project
-                                renameText = project.name
-                            } label: {
-                                Label("重命名", systemImage: "pencil")
+        GeometryReader { proxy in
+            ScrollView {
+                if libraryStore.projects.isEmpty {
+                    emptyState
+                } else {
+                    LazyVGrid(columns: columns(for: proxy.size.width), spacing: 14) {
+                        ForEach(libraryStore.projects) { project in
+                            NavigationLink(value: project.id) {
+                                ProjectCardView(project: project)
                             }
-                            Button {
-                                duplicate(project)
-                            } label: {
-                                Label("复制", systemImage: "doc.on.doc")
-                            }
-                            Button {
-                                togglePin(project)
-                            } label: {
-                                Label(project.isPinned ? "取消置顶" : "置顶",
-                                      systemImage: project.isPinned ? "pin.slash" : "pin")
-                            }
-                            Button(role: .destructive) {
-                                deleteTarget = project
-                            } label: {
-                                Label("删除", systemImage: "trash")
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button {
+                                    renameTarget = project
+                                    renameText = project.name
+                                } label: {
+                                    Label("重命名", systemImage: "pencil")
+                                }
+                                Button {
+                                    duplicate(project)
+                                } label: {
+                                    Label("复制", systemImage: "doc.on.doc")
+                                }
+                                Button {
+                                    togglePin(project)
+                                } label: {
+                                    Label(project.isPinned ? "取消置顶" : "置顶",
+                                          systemImage: project.isPinned ? "pin.slash" : "pin")
+                                }
+                                Button(role: .destructive) {
+                                    deleteTarget = project
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
                             }
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
             }
         }
         .navigationTitle("项目")
@@ -122,6 +119,20 @@ public struct ProjectBrowserView: View {
             // 返回列表时刷新（编辑页内可能已修改项目内容）。
             libraryStore.refreshProjects()
         }
+    }
+
+    // MARK: - Layout
+
+    /// Even column counts keep the grid compatible with a fold and avoid
+    /// awkward half-card splits as the window resizes.
+    private func columns(for width: CGFloat) -> [GridItem] {
+        let availableWidth = max(0, width - 32)
+        let rawCount = max(2, Int(availableWidth / 160))
+        let evenCount = min(6, rawCount - (rawCount % 2))
+        return Array(
+            repeating: GridItem(.flexible(), spacing: 12),
+            count: max(2, evenCount)
+        )
     }
 
     // MARK: - Subviews

@@ -104,6 +104,8 @@ public struct ClipEditorView: View {
 
     @State private var showAddMediaPicker = false
     @State private var showInspector = false
+    @State private var isWorkspaceInspectorCollapsed = false
+    @State private var workspaceForm: EditorLayoutForm = .phone
     @State private var addMediaItems: [PhotosPickerItem] = []
     @State private var pendingVisualTrackID: UUID?
     @State private var pendingAudioTrackID: UUID?
@@ -126,48 +128,31 @@ public struct ClipEditorView: View {
     private var editorContent: some View {
         GeometryReader { geo in
             let decision = adaptiveLayout(for: geo)
-            let previewHeight = decision?.previewSize.height ?? legacyPreviewHeight(for: geo)
+            let form = decision?.form ?? .phone
+            let usesWorkspace = form == .mediumWorkspace || form == .wideWorkspace
 
             ZStack(alignment: .bottom) {
-                VStack(spacing: 0) {
-
-                    // ── Layer 1: Preview ─────────────────────────────────────────
-                    EditorPreviewView(store: store, compositionPlayer: coordinator.player, timelinePreviewView: coordinator.timelinePreviewView)
-                        .frame(height: previewHeight)
-
-                    Divider().background(Color.white.opacity(0.08))
-
-                    // ── Layer 2: Tracks ──────────────────────────────────────────
-                    EditorControlBar(
-                        store: store,
-                        onRequestFullScreenPreview: { showFullScreenPreview = true }
+                if let decision, usesWorkspace {
+                    workspaceContent(decision: decision)
+                } else {
+                    stackedContent(
+                        geo: geo,
+                        previewHeight: decision?.previewSize.height ?? legacyPreviewHeight(for: geo)
                     )
-                        .frame(height: controlBarHeight)
-                        .padding(.horizontal, 12)
-
-                    ZStack(alignment: .topTrailing) {
-                        TrackEditorRepresentable(
-                            store: store,
-                            timeline: store.timeline,
-                            refreshToken: trackRefreshToken,
-                            onEmptyTrackAdd: handleEmptyTrackAdd
-                        )
-                            .frame(minHeight: trackMinHeight, maxHeight: .infinity)
-
-                        // Fixed "+" button aligned with the main track row (below ruler).
-                        addSegmentButton
-                            .padding(.top, TrackCanvasView.rulerHeight + TrackCanvasView.SegmentVisuals.blockVPadding)
-                            .padding(.trailing, 8)
-                    }
-
-                    // ── Layer 3: Bottom Toolbar ──────────────────────────────────
-                    EditorBottomToolbar(activeCategory: $activeToolCategory)
                 }
-
-                // ── Overlay: Edit panels cover the bottom toolbar when active ──
-                panelOverlay(geo: geo)
             }
             .animation(.spring(duration: 0.25), value: activeToolCategory)
+            .onChange(of: decision?.form, initial: true) { _, newForm in
+                let resolved = newForm ?? .phone
+                if resolved == .mediumWorkspace || resolved == .wideWorkspace {
+                    if workspaceForm != resolved {
+                        isWorkspaceInspectorCollapsed = false
+                    }
+                } else {
+                    isWorkspaceInspectorCollapsed = false
+                }
+                workspaceForm = resolved
+            }
             .overlay {
                 #if DEBUG
                 EditorLayoutDebugOverlay(
@@ -176,6 +161,101 @@ public struct ClipEditorView: View {
                 )
                 #endif
             }
+        }
+    }
+
+    // MARK: - Stacked (phone) layout
+
+    private func stackedContent(geo: GeometryProxy, previewHeight: CGFloat) -> some View {
+        ZStack(alignment: .bottom) {
+            VStack(spacing: 0) {
+                EditorPreviewView(
+                    store: store,
+                    compositionPlayer: coordinator.player,
+                    timelinePreviewView: coordinator.timelinePreviewView
+                )
+                .frame(height: previewHeight)
+
+                Divider().background(Color.white.opacity(0.08))
+
+                editorControlBar
+                trackPane
+
+                EditorBottomToolbar(activeCategory: $activeToolCategory)
+            }
+
+            // Edit panels cover the bottom toolbar when active.
+            panelOverlay(geo: geo)
+        }
+    }
+
+    // MARK: - Regular width workspace
+
+    private func workspaceContent(
+        decision: EditorLayoutDecision
+    ) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                if decision.form == .wideWorkspace {
+                    EditorToolRail(activeCategory: $activeToolCategory)
+                    Divider().background(Color.white.opacity(0.08))
+                }
+
+                EditorPreviewView(
+                    store: store,
+                    compositionPlayer: coordinator.player,
+                    timelinePreviewView: coordinator.timelinePreviewView
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                Divider().background(Color.white.opacity(0.08))
+
+                EditorWorkspaceInspector(
+                    route: toolPanelRoute,
+                    store: store,
+                    isCollapsed: $isWorkspaceInspectorCollapsed,
+                    width: decision.auxiliaryPanelWidth,
+                    onDismiss: dismissToolPanel,
+                    onAudioTargetConsumed: { pendingAudioTrackID = nil }
+                )
+            }
+            .frame(height: max(decision.previewSize.height, 1))
+            .background(Color.black)
+
+            Divider().background(Color.white.opacity(0.08))
+
+            editorControlBar
+            trackPane
+
+            if decision.form == .mediumWorkspace {
+                EditorBottomToolbar(activeCategory: $activeToolCategory)
+            }
+        }
+    }
+
+    private var editorControlBar: some View {
+        EditorControlBar(
+            store: store,
+            onRequestFullScreenPreview: { showFullScreenPreview = true }
+        )
+        .frame(height: controlBarHeight)
+        .padding(.horizontal, 12)
+    }
+
+    private var trackPane: some View {
+        ZStack(alignment: .topTrailing) {
+            TrackEditorRepresentable(
+                store: store,
+                timeline: store.timeline,
+                refreshToken: trackRefreshToken,
+                onEmptyTrackAdd: handleEmptyTrackAdd
+            )
+            .frame(minHeight: trackMinHeight, maxHeight: .infinity)
+
+            // Fixed "+" button aligned with the main track row (below ruler).
+            addSegmentButton
+                .padding(.top, TrackCanvasView.rulerHeight + TrackCanvasView.SegmentVisuals.blockVPadding)
+                .padding(.trailing, 8)
         }
     }
 
@@ -436,7 +516,11 @@ public struct ClipEditorView: View {
                 .disabled(!store.canRedo)
 
                 Button {
-                    showInspector = true
+                    if workspaceForm == .mediumWorkspace || workspaceForm == .wideWorkspace {
+                        isWorkspaceInspectorCollapsed.toggle()
+                    } else {
+                        showInspector = true
+                    }
                 } label: {
                     Label("检查器", systemImage: "slider.horizontal.3")
                 }

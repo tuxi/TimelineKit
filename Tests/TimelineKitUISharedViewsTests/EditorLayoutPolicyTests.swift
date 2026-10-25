@@ -13,6 +13,7 @@ final class EditorLayoutPolicyTests: XCTestCase {
         XCTAssertEqual(decision.foldAxis, .none)
         XCTAssertFalse(decision.showsAuxiliaryPanel)
         XCTAssertFalse(decision.showsInspector)
+        XCTAssertEqual(decision.auxiliaryPanelWidth, 0)
         XCTAssertEqual(decision.previewSize.width, 390, accuracy: 0.01)
         XCTAssertEqual(decision.previewSize.height, 447.32, accuracy: 0.01)
         XCTAssertEqual(decision.timelineSize.height, 276.68, accuracy: 0.01)
@@ -27,8 +28,18 @@ final class EditorLayoutPolicyTests: XCTestCase {
         XCTAssertEqual(decision.form, .mediumWorkspace)
         XCTAssertTrue(decision.showsAuxiliaryPanel)
         XCTAssertFalse(decision.showsInspector)
+        XCTAssertEqual(decision.auxiliaryPanelWidth, 283.56, accuracy: 0.01)
         XCTAssertEqual(decision.previewSize.height, 689.44, accuracy: 0.01)
         XCTAssertEqual(decision.timelineSize.height, 302.56, accuracy: 0.01)
+    }
+
+    func testNarrowRegularWidthKeepsMinimumPanelWidth() {
+        let decision = EditorLayoutPolicy.decide(
+            input(container: CGSize(width: 600, height: 900), horizontal: .regular)
+        )
+
+        XCTAssertEqual(decision.form, .mediumWorkspace)
+        XCTAssertEqual(decision.auxiliaryPanelWidth, 220, accuracy: 0.01)
     }
 
     func testWideWorkspaceShowsInspector() {
@@ -39,6 +50,7 @@ final class EditorLayoutPolicyTests: XCTestCase {
         XCTAssertEqual(decision.form, .wideWorkspace)
         XCTAssertTrue(decision.showsAuxiliaryPanel)
         XCTAssertTrue(decision.showsInspector)
+        XCTAssertEqual(decision.auxiliaryPanelWidth, 340, accuracy: 0.01)
     }
 
     func testRegularWidthWithShortHeightFallsBackToPhone() {
@@ -144,6 +156,7 @@ final class EditorLayoutPolicyTests: XCTestCase {
         XCTAssertEqual(decision.timelineSize, CGSize(width: 480, height: 800))
         XCTAssertFalse(decision.showsAuxiliaryPanel)
         XCTAssertFalse(decision.showsInspector)
+        XCTAssertEqual(decision.auxiliaryPanelWidth, 0)
         XCTAssertEqual(decision.activeFoldFrame, fold.frame)
     }
 

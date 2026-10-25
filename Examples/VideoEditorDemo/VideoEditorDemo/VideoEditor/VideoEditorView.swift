@@ -19,9 +19,10 @@ struct VideoEditorView: View {
     @State private var openLibrayError: Error?
     @State private var layoutMode: EditorLayoutMode = ProcessInfo.processInfo.arguments
         .contains("-TimelineKitAdaptiveLayout") ? .adaptive : .legacy
+    @State private var navigationPath: [UUID] = []
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             ProjectBrowserView(libraryStore: libraryStore)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
@@ -38,6 +39,7 @@ struct VideoEditorView: View {
                 }
                 .task {
                     openLibray()
+                    openSampleProjectIfRequested()
                 }
                 .alert("打开资源库失败", isPresented: $showOpenLibrayError, actions: {
                     Button {
@@ -59,6 +61,22 @@ struct VideoEditorView: View {
 
         }
         .environment(\.editorLayoutMode, layoutMode)
+    }
+
+    /// Debug-only entry for device automation: seeds a project and opens the
+    /// editor with `-TimelineKitOpenSampleProject`.
+    private func openSampleProjectIfRequested() {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-TimelineKitOpenSampleProject") else {
+            return
+        }
+        if libraryStore.projects.isEmpty {
+            _ = try? libraryStore.createProject(name: "Layout Test")
+        }
+        if navigationPath.isEmpty, let project = libraryStore.projects.first {
+            navigationPath = [project.id]
+        }
+        #endif
     }
 
     func openLibray() {
