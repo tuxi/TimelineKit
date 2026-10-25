@@ -197,6 +197,40 @@ final class EditorLayoutPolicyTests: XCTestCase {
         XCTAssertEqual(decision.timelineSize, CGSize(width: 1000, height: 380))
     }
 
+    func testVerticalFoldRequiresPreviewWidth() {
+        let fold = region(
+            .division,
+            CGRect(x: 200, y: 0, width: 40, height: 900)
+        )
+        let decision = EditorLayoutPolicy.decide(
+            input(
+                container: CGSize(width: 600, height: 900),
+                horizontal: .regular,
+                regions: [fold]
+            )
+        )
+
+        XCTAssertEqual(decision.foldAxis, .none)
+        XCTAssertEqual(decision.form, .mediumWorkspace)
+    }
+
+    func testHorizontalFoldRequiresTimelineHeight() {
+        let fold = region(
+            .division,
+            CGRect(x: 0, y: 100, width: 834, height: 40)
+        )
+        let decision = EditorLayoutPolicy.decide(
+            input(
+                container: CGSize(width: 834, height: 1104),
+                horizontal: .regular,
+                regions: [fold]
+            )
+        )
+
+        XCTAssertEqual(decision.foldAxis, .none)
+        XCTAssertEqual(decision.form, .mediumWorkspace)
+    }
+
     func testInactiveDivisionIsIgnored() {
         let fold = region(
             .division,
@@ -256,6 +290,53 @@ final class EditorLayoutPolicyTests: XCTestCase {
     }
 
     // MARK: - Occlusion
+
+    func testActiveOcclusionInTopBandAddsControlInset() {
+        let occlusion = region(
+            .occlusion,
+            CGRect(x: 340, y: 0, width: 60, height: 60)
+        )
+        let decision = EditorLayoutPolicy.decide(
+            input(
+                container: CGSize(width: 402, height: 724),
+                regions: [occlusion]
+            )
+        )
+
+        XCTAssertEqual(decision.form, .phone)
+        XCTAssertEqual(decision.topControlInset, 44, accuracy: 0.01)
+    }
+
+    func testOcclusionBelowTopBandDoesNotMoveControls() {
+        let occlusion = region(
+            .occlusion,
+            CGRect(x: 340, y: 600, width: 60, height: 60)
+        )
+        let decision = EditorLayoutPolicy.decide(
+            input(
+                container: CGSize(width: 402, height: 724),
+                regions: [occlusion]
+            )
+        )
+
+        XCTAssertEqual(decision.topControlInset, 0)
+    }
+
+    func testInactiveOcclusionDoesNotMoveControls() {
+        let occlusion = region(
+            .occlusion,
+            CGRect(x: 340, y: 0, width: 60, height: 60),
+            active: false
+        )
+        let decision = EditorLayoutPolicy.decide(
+            input(
+                container: CGSize(width: 402, height: 724),
+                regions: [occlusion]
+            )
+        )
+
+        XCTAssertEqual(decision.topControlInset, 0)
+    }
 
     func testActiveOcclusionFramesAreReportedWithoutChangingForm() {
         let active = region(

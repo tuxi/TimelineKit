@@ -63,9 +63,14 @@ public struct EditorLayoutMetrics: Equatable, Sendable {
     public var regularWorkspaceMinHeight: CGFloat
     public var wideWorkspaceMinWidth: CGFloat
     public var wideWorkspaceMinHeight: CGFloat
-    public var foldSideMinWidth: CGFloat
+    public var foldPreviewMinWidth: CGFloat
+    public var foldTimelineMinWidth: CGFloat
+    public var foldPreviewMinHeight: CGFloat
+    public var foldTimelineMinHeight: CGFloat
     public var compactTimelineMaxHeight: CGFloat
     public var compactTimelineMaxWidth: CGFloat
+    public var occlusionTopBandHeight: CGFloat
+    public var occlusionControlInset: CGFloat
 
     public init(
         phonePreviewRatio: CGFloat = 0.53,
@@ -75,9 +80,14 @@ public struct EditorLayoutMetrics: Equatable, Sendable {
         regularWorkspaceMinHeight: CGFloat = 500,
         wideWorkspaceMinWidth: CGFloat = 900,
         wideWorkspaceMinHeight: CGFloat = 600,
-        foldSideMinWidth: CGFloat = 140,
+        foldPreviewMinWidth: CGFloat = 220,
+        foldTimelineMinWidth: CGFloat = 220,
+        foldPreviewMinHeight: CGFloat = 180,
+        foldTimelineMinHeight: CGFloat = 180,
         compactTimelineMaxHeight: CGFloat = 200,
-        compactTimelineMaxWidth: CGFloat = 260
+        compactTimelineMaxWidth: CGFloat = 260,
+        occlusionTopBandHeight: CGFloat = 88,
+        occlusionControlInset: CGFloat = 44
     ) {
         self.phonePreviewRatio = phonePreviewRatio
         self.largePreviewRatio = largePreviewRatio
@@ -86,9 +96,14 @@ public struct EditorLayoutMetrics: Equatable, Sendable {
         self.regularWorkspaceMinHeight = regularWorkspaceMinHeight
         self.wideWorkspaceMinWidth = wideWorkspaceMinWidth
         self.wideWorkspaceMinHeight = wideWorkspaceMinHeight
-        self.foldSideMinWidth = foldSideMinWidth
+        self.foldPreviewMinWidth = foldPreviewMinWidth
+        self.foldTimelineMinWidth = foldTimelineMinWidth
+        self.foldPreviewMinHeight = foldPreviewMinHeight
+        self.foldTimelineMinHeight = foldTimelineMinHeight
         self.compactTimelineMaxHeight = compactTimelineMaxHeight
         self.compactTimelineMaxWidth = compactTimelineMaxWidth
+        self.occlusionTopBandHeight = occlusionTopBandHeight
+        self.occlusionControlInset = occlusionControlInset
     }
 }
 
@@ -161,6 +176,9 @@ public struct EditorLayoutDecision: Equatable, Sendable {
     public let showsInspector: Bool
     /// Preferred inline inspector width; zero when the form has no side panel.
     public let auxiliaryPanelWidth: CGFloat
+    /// Extra top inset for custom controls when an active occlusion intersects
+    /// the top band. Zero when no avoidance is needed.
+    public let topControlInset: CGFloat
 
     public init(
         form: EditorLayoutForm,
@@ -173,7 +191,8 @@ public struct EditorLayoutDecision: Equatable, Sendable {
         activeOcclusionFrames: [CGRect],
         showsAuxiliaryPanel: Bool,
         showsInspector: Bool,
-        auxiliaryPanelWidth: CGFloat
+        auxiliaryPanelWidth: CGFloat,
+        topControlInset: CGFloat
     ) {
         self.form = form
         self.contentSize = contentSize
@@ -186,6 +205,7 @@ public struct EditorLayoutDecision: Equatable, Sendable {
         self.showsAuxiliaryPanel = showsAuxiliaryPanel
         self.showsInspector = showsInspector
         self.auxiliaryPanelWidth = auxiliaryPanelWidth
+        self.topControlInset = topControlInset
     }
 }
 
@@ -210,16 +230,22 @@ public enum EditorLayoutPolicy {
         let activeOcclusions = input.reservedRegions
             .filter { $0.kind == .occlusion && $0.isActive }
             .map(\.frame)
+        let topControlInset = occlusionTopInset(
+            activeOcclusions,
+            contentRect: contentRect,
+            metrics: input.metrics
+        )
 
         if let fold = usableFold(
             in: input.reservedRegions,
             contentRect: contentRect,
-            minSide: input.metrics.foldSideMinWidth
+            metrics: input.metrics
         ) {
             return foldedDecision(
                 fold: fold,
                 contentRect: contentRect,
                 activeOcclusions: activeOcclusions,
+                topControlInset: topControlInset,
                 metrics: input.metrics
             )
         }
@@ -227,7 +253,8 @@ public enum EditorLayoutPolicy {
         return stackedDecision(
             input: input,
             contentRect: contentRect,
-            activeOcclusions: activeOcclusions
+            activeOcclusions: activeOcclusions,
+            topControlInset: topControlInset
         )
     }
 
@@ -236,7 +263,8 @@ public enum EditorLayoutPolicy {
     private static func stackedDecision(
         input: EditorLayoutInput,
         contentRect: CGRect,
-        activeOcclusions: [CGRect]
+        activeOcclusions: [CGRect],
+        topControlInset: CGFloat
     ) -> EditorLayoutDecision {
         let metrics = input.metrics
         let isRegularWidth = input.horizontalSizeClass == .regular
@@ -287,7 +315,8 @@ public enum EditorLayoutPolicy {
             activeOcclusionFrames: activeOcclusions,
             showsAuxiliaryPanel: form == .mediumWorkspace || form == .wideWorkspace,
             showsInspector: form == .wideWorkspace,
-            auxiliaryPanelWidth: auxiliaryPanelWidth
+            auxiliaryPanelWidth: auxiliaryPanelWidth,
+            topControlInset: topControlInset
         )
     }
 
@@ -297,6 +326,7 @@ public enum EditorLayoutPolicy {
         fold: EditorReservedRegion,
         contentRect: CGRect,
         activeOcclusions: [CGRect],
+        topControlInset: CGFloat,
         metrics: EditorLayoutMetrics
     ) -> EditorLayoutDecision {
         let isVertical = fold.frame.height > fold.frame.width
@@ -329,7 +359,8 @@ public enum EditorLayoutPolicy {
             activeOcclusionFrames: activeOcclusions,
             showsAuxiliaryPanel: false,
             showsInspector: false,
-            auxiliaryPanelWidth: 0
+            auxiliaryPanelWidth: 0,
+            topControlInset: topControlInset
         )
     }
 
@@ -357,7 +388,7 @@ public enum EditorLayoutPolicy {
     private static func usableFold(
         in regions: [EditorReservedRegion],
         contentRect: CGRect,
-        minSide: CGFloat
+        metrics: EditorLayoutMetrics
     ) -> EditorReservedRegion? {
         let candidates = regions
             .filter { $0.kind == .division && $0.isActive }
@@ -368,19 +399,41 @@ public enum EditorLayoutPolicy {
             if frame.height > frame.width {
                 let leading = frame.minX - contentRect.minX
                 let trailing = contentRect.maxX - frame.maxX
-                if leading >= minSide, trailing >= minSide {
+                if leading >= metrics.foldPreviewMinWidth,
+                   trailing >= metrics.foldTimelineMinWidth {
                     return region
                 }
             } else {
                 let top = frame.minY - contentRect.minY
                 let bottom = contentRect.maxY - frame.maxY
-                if top >= minSide, bottom >= minSide {
+                if top >= metrics.foldPreviewMinHeight,
+                   bottom >= metrics.foldTimelineMinHeight {
                     return region
                 }
             }
         }
 
         return nil
+    }
+
+    /// Moves custom top controls down only when an active occlusion intersects
+    /// the top band. Preview content may continue under the camera.
+    private static func occlusionTopInset(
+        _ frames: [CGRect],
+        contentRect: CGRect,
+        metrics: EditorLayoutMetrics
+    ) -> CGFloat {
+        guard !frames.isEmpty else { return 0 }
+        let bandHeight = min(metrics.occlusionTopBandHeight, contentRect.height)
+        let topBand = CGRect(
+            x: contentRect.minX,
+            y: contentRect.minY,
+            width: contentRect.width,
+            height: bandHeight
+        )
+        return frames.contains { $0.intersects(topBand) }
+            ? metrics.occlusionControlInset
+            : 0
     }
 
     private static func density(

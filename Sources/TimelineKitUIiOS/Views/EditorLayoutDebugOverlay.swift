@@ -38,7 +38,7 @@ struct EditorLayoutDebugOverlay: View {
                     Text("timeline: \(sizeText(decision.timelineSize)) · \(decision.timelineDensity.rawValue)")
                     Text("class: \(input.horizontalSizeClass.rawValue)/\(input.verticalSizeClass.rawValue)")
                     Text("fold: \(decision.foldAxis.rawValue) · \(rectText(decision.activeFoldFrame))")
-                    Text("occlusion: \(decision.activeOcclusionFrames.count) active")
+                    Text("occlusion: \(decision.activeOcclusionFrames.count) active · top inset \(Int(decision.topControlInset))")
                     Text("panels: aux \(decision.showsAuxiliaryPanel ? "on" : "off") · inspector \(decision.showsInspector ? "on" : "off")")
                 }
                 .font(.system(size: 10, design: .monospaced))
@@ -59,24 +59,31 @@ struct EditorLayoutDebugOverlay: View {
     private func makeInput(_ proxy: GeometryProxy) -> EditorLayoutInput {
         var metrics = EditorLayoutMetrics()
         metrics.minTimelineHeight = minTimelineHeight
+        metrics.foldTimelineMinHeight = minTimelineHeight + fixedChromeHeight
+
+        let debugRegions = EditorLayoutDebugRegions.synthetic(for: proxy.size)
 
         // Match the editor's input: the proxy is already inside the navigation
         // content, so safe-area insets must not be applied twice.
         if #available(iOS 27.1, *) {
-            return EditorLayoutAdapter.input(
-                size: proxy.size,
-                safeAreaInsets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
-                horizontalSizeClass: horizontalSizeClass,
-                verticalSizeClass: verticalSizeClass,
-                divisionRegions: proxy.reservedRegions(
+            let regions = EditorLayoutAdapter.regions(
+                division: proxy.reservedRegions(
                     kind: .division,
                     options: .includeInactive
                 ),
-                occlusionRegions: proxy.reservedRegions(
+                occlusion: proxy.reservedRegions(
                     kind: .occlusion,
                     options: .includeInactive
-                ),
+                )
+            )
+
+            return EditorLayoutInput(
+                horizontalSizeClass: horizontalSizeClass == .regular ? .regular : .compact,
+                verticalSizeClass: verticalSizeClass == .regular ? .regular : .compact,
+                containerSize: proxy.size,
+                safeAreaInsets: .zero,
                 fixedChromeHeight: fixedChromeHeight,
+                reservedRegions: regions + debugRegions,
                 metrics: metrics
             )
         }
@@ -87,6 +94,7 @@ struct EditorLayoutDebugOverlay: View {
             containerSize: proxy.size,
             safeAreaInsets: .zero,
             fixedChromeHeight: fixedChromeHeight,
+            reservedRegions: debugRegions,
             metrics: metrics
         )
     }

@@ -5,6 +5,7 @@ import SwiftUI
 struct EditorToolRail: View {
     @Binding var activeCategory: EditorToolCategory?
     var width: CGFloat = 76
+    var topInset: CGFloat = 0
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -37,6 +38,7 @@ struct EditorToolRail: View {
                     .accessibilityAddTraits(isActive ? .isSelected : [])
                 }
             }
+            .padding(.top, topInset)
             .padding(6)
         }
         .frame(width: width)

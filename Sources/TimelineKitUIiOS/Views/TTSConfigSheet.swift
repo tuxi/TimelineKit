@@ -97,7 +97,7 @@ struct TTSConfigSheet: View {
             }
             .onDisappear { stopPreview() }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 
     // MARK: - Actions

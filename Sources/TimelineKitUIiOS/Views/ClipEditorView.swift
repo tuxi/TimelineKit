@@ -130,9 +130,12 @@ public struct ClipEditorView: View {
             let decision = adaptiveLayout(for: geo)
             let form = decision?.form ?? .phone
             let usesWorkspace = form == .mediumWorkspace || form == .wideWorkspace
+            let usesFolded = form == .foldedWorkspace
 
             ZStack(alignment: .bottom) {
-                if let decision, usesWorkspace {
+                if let decision, usesFolded {
+                    foldedContent(decision: decision)
+                } else if let decision, usesWorkspace {
                     workspaceContent(decision: decision)
                 } else {
                     stackedContent(
@@ -197,7 +200,10 @@ public struct ClipEditorView: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 if decision.form == .wideWorkspace {
-                    EditorToolRail(activeCategory: $activeToolCategory)
+                    EditorToolRail(
+                        activeCategory: $activeToolCategory,
+                        topInset: decision.topControlInset
+                    )
                     Divider().background(Color.white.opacity(0.08))
                 }
 
@@ -215,6 +221,7 @@ public struct ClipEditorView: View {
                     store: store,
                     isCollapsed: $isWorkspaceInspectorCollapsed,
                     width: decision.auxiliaryPanelWidth,
+                    topInset: decision.topControlInset,
                     onDismiss: dismissToolPanel,
                     onAudioTargetConsumed: { pendingAudioTrackID = nil }
                 )
@@ -231,6 +238,105 @@ public struct ClipEditorView: View {
                 EditorBottomToolbar(activeCategory: $activeToolCategory)
             }
         }
+    }
+
+    // MARK: - Folded layout
+
+    @ViewBuilder
+    private func foldedContent(decision: EditorLayoutDecision) -> some View {
+        switch decision.foldAxis {
+        case .vertical:
+            HStack(spacing: 0) {
+                previewPane
+                    .frame(
+                        width: max(decision.previewSize.width, 1),
+                        height: max(decision.contentSize.height, 1)
+                    )
+
+                foldGap(
+                    width: max(
+                        decision.contentSize.width
+                            - decision.previewSize.width
+                            - decision.timelineSize.width,
+                        1
+                    )
+                )
+
+                verticalTimelineColumn(decision: decision)
+                    .frame(
+                        width: max(decision.timelineSize.width, 1),
+                        height: max(decision.contentSize.height, 1)
+                    )
+            }
+
+        case .horizontal:
+            VStack(spacing: 0) {
+                previewPane
+                    .frame(
+                        width: max(decision.contentSize.width, 1),
+                        height: max(decision.previewSize.height, 1)
+                    )
+
+                foldGap(
+                    height: max(
+                        decision.contentSize.height
+                            - decision.previewSize.height
+                            - decision.timelineSize.height,
+                        1
+                    )
+                )
+
+                horizontalTimelineColumn
+                    .frame(
+                        width: max(decision.contentSize.width, 1),
+                        height: max(decision.timelineSize.height, 1)
+                    )
+            }
+
+        case .none:
+            EmptyView()
+        }
+    }
+
+    private var previewPane: some View {
+        EditorPreviewView(
+            store: store,
+            compositionPlayer: coordinator.player,
+            timelinePreviewView: coordinator.timelinePreviewView
+        )
+    }
+
+    private func verticalTimelineColumn(decision: EditorLayoutDecision) -> some View {
+        VStack(spacing: 0) {
+            if decision.topControlInset > 0 {
+                Color.clear
+                    .frame(height: decision.topControlInset)
+            }
+
+            editorControlBar
+            trackPane
+            EditorBottomToolbar(activeCategory: $activeToolCategory)
+        }
+    }
+
+    private var horizontalTimelineColumn: some View {
+        VStack(spacing: 0) {
+            editorControlBar
+            trackPane
+            EditorBottomToolbar(activeCategory: $activeToolCategory)
+        }
+    }
+
+    private func foldGap(width: CGFloat) -> some View {
+        Color.black
+            .frame(width: max(width, 1))
+            .allowsHitTesting(false)
+    }
+
+    private func foldGap(height: CGFloat) -> some View {
+        Color.black
+            .frame(height: max(height, 1))
+            .allowsHitTesting(false)
     }
 
     private var editorControlBar: some View {
@@ -261,40 +367,47 @@ public struct ClipEditorView: View {
 
     // MARK: - Adaptive layout
 
-    /// Returns a policy decision only when the adaptive mode is enabled and the
-    /// current arrangement is the proven stacked layout. Fold-aware placement
-    /// lands with the Duo pass.
+    /// Returns a policy decision when the adaptive mode is enabled.
     private func adaptiveLayout(for geo: GeometryProxy) -> EditorLayoutDecision? {
         guard layoutMode == .adaptive else { return nil }
-        let decision = EditorLayoutPolicy.decide(layoutInput(for: geo))
-        guard decision.foldAxis == .none else { return nil }
-        return decision
+        return EditorLayoutPolicy.decide(layoutInput(for: geo))
     }
 
     private func layoutInput(for geo: GeometryProxy) -> EditorLayoutInput {
         var metrics = EditorLayoutMetrics()
         metrics.minTimelineHeight = trackMinHeight
+        metrics.foldTimelineMinHeight = trackMinHeight + controlBarHeight + EditorBottomToolbar.height
 
         let chromeHeight = controlBarHeight + EditorBottomToolbar.height
+
+        #if DEBUG
+        let debugRegions = EditorLayoutDebugRegions.synthetic(for: geo.size)
+        #else
+        let debugRegions: [EditorReservedRegion] = []
+        #endif
 
         // The editor's GeometryReader already sits inside the navigation
         // content, so its size is the layout bounds; applying safe-area insets
         // again would double-count them.
         if #available(iOS 27.1, *) {
-            return EditorLayoutAdapter.input(
-                size: geo.size,
-                safeAreaInsets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
-                horizontalSizeClass: horizontalSizeClass,
-                verticalSizeClass: verticalSizeClass,
-                divisionRegions: geo.reservedRegions(
+            let regions = EditorLayoutAdapter.regions(
+                division: geo.reservedRegions(
                     kind: .division,
                     options: .includeInactive
                 ),
-                occlusionRegions: geo.reservedRegions(
+                occlusion: geo.reservedRegions(
                     kind: .occlusion,
                     options: .includeInactive
-                ),
+                )
+            )
+
+            return EditorLayoutInput(
+                horizontalSizeClass: horizontalSizeClass == .regular ? .regular : .compact,
+                verticalSizeClass: verticalSizeClass == .regular ? .regular : .compact,
+                containerSize: geo.size,
+                safeAreaInsets: .zero,
                 fixedChromeHeight: chromeHeight,
+                reservedRegions: regions + debugRegions,
                 metrics: metrics
             )
         }
@@ -305,6 +418,7 @@ public struct ClipEditorView: View {
             containerSize: geo.size,
             safeAreaInsets: .zero,
             fixedChromeHeight: chromeHeight,
+            reservedRegions: debugRegions,
             metrics: metrics
         )
     }
@@ -334,8 +448,8 @@ public struct ClipEditorView: View {
         )) {
             if let ctx = transitionEditContext {
                 TransitionEditSheet(context: ctx, store: store)
-                    .presentationDetents([.height(310)])
-                    .presentationDragIndicator(.hidden)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
             }
         }
         .sheet(isPresented: Binding(

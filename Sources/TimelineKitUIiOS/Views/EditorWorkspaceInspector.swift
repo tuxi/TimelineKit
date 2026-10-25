@@ -11,6 +11,7 @@ struct EditorWorkspaceInspector: View {
     let store: EditorStore
     @Binding var isCollapsed: Bool
     let width: CGFloat
+    var topInset: CGFloat = 0
     var onDismiss: () -> Void = {}
     var onAudioTargetConsumed: () -> Void = {}
 
@@ -48,7 +49,8 @@ struct EditorWorkspaceInspector: View {
                 .accessibilityLabel("收起检查器")
             }
             .padding(.horizontal, 12)
-            .frame(height: 38)
+            .padding(.top, topInset)
+            .frame(height: 38 + topInset)
 
             Divider().background(Color.white.opacity(0.08))
 
@@ -89,7 +91,7 @@ struct EditorWorkspaceInspector: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.top, 8)
+        .padding(.top, 8 + topInset)
         .frame(width: 44)
     }
 }
