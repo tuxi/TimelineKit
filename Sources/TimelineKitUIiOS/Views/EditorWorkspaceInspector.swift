@@ -46,6 +46,7 @@ struct EditorWorkspaceInspector: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
+                .hoverEffect(.highlight)
                 .accessibilityLabel("收起检查器")
             }
             .padding(.horizontal, 12)
@@ -80,6 +81,7 @@ struct EditorWorkspaceInspector: View {
                     .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
+            .hoverEffect(.highlight)
             .accessibilityLabel("展开检查器")
 
             Text("检查器")

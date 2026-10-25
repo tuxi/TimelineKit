@@ -85,6 +85,7 @@ struct EditorBottomToolbar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverEffect(.highlight)
     }
 }
 

@@ -34,6 +34,7 @@ struct EditorToolRail: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .hoverEffect(.highlight)
                     .accessibilityLabel(category.rawValue)
                     .accessibilityAddTraits(isActive ? .isSelected : [])
                 }

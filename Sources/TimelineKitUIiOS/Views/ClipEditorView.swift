@@ -2,6 +2,7 @@
 import SwiftUI
 import PhotosUI
 import AVFoundation
+import UniformTypeIdentifiers
 import TimelineKitCore
 import TimelineKitRender
 import TimelineKitUIShared
@@ -19,6 +20,7 @@ public struct ClipEditorView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.editorLayoutMode) private var layoutMode
+    @FocusState private var editorHasFocus: Bool
     @State private var store: EditorStore
     @State private var libraryStore = TimelineLibraryStore()
     @State private var activeProjectID: UUID?
@@ -103,8 +105,12 @@ public struct ClipEditorView: View {
     private let trackMinHeight: CGFloat    = 140
 
     @State private var showAddMediaPicker = false
+    @State private var showFileImporter = false
+    @State private var isMediaDropTargeted = false
     @State private var showInspector = false
     @State private var isWorkspaceInspectorCollapsed = false
+    @State private var isMediaPanelCollapsed = false
+    @State private var workspaceTopHeightOverride: CGFloat?
     @State private var workspaceForm: EditorLayoutForm = .phone
     @State private var addMediaItems: [PhotosPickerItem] = []
     @State private var pendingVisualTrackID: UUID?
@@ -154,6 +160,7 @@ public struct ClipEditorView: View {
                 } else {
                     isWorkspaceInspectorCollapsed = false
                 }
+                workspaceTopHeightOverride = nil
                 workspaceForm = resolved
             }
             .overlay {
@@ -165,6 +172,46 @@ public struct ClipEditorView: View {
                 #endif
             }
         }
+        .focusable()
+        .focused($editorHasFocus)
+        .onAppear { editorHasFocus = true }
+        .onChange(of: store.selection.editingSegmentID) { _, newValue in
+            if newValue == nil {
+                editorHasFocus = true
+            }
+        }
+        .onKeyPress { press in
+            guard press.modifiers.isEmpty else { return .ignored }
+
+            if press.key == .space {
+                store.togglePlayback()
+                return .handled
+            }
+            if press.key == .leftArrow {
+                stepFrame(-1)
+                return .handled
+            }
+            if press.key == .rightArrow {
+                stepFrame(1)
+                return .handled
+            }
+            if press.key == .delete {
+                deleteSelectedSegment()
+                return .handled
+            }
+            return .ignored
+        }
+    }
+
+    private func stepFrame(_ direction: Int) {
+        let fps = max(store.timeline.canvas.fps, 1)
+        let step = 1.0 / Double(fps)
+        store.seek(to: store.selection.playheadTime + (direction > 0 ? step : -step))
+    }
+
+    private func deleteSelectedSegment() {
+        guard let segmentID = store.selection.singleSelectedID else { return }
+        store.deleteSegment(id: segmentID)
     }
 
     // MARK: - Stacked (phone) layout
@@ -197,7 +244,18 @@ public struct ClipEditorView: View {
     private func workspaceContent(
         decision: EditorLayoutDecision
     ) -> some View {
-        VStack(spacing: 0) {
+        let bottomChrome = controlBarHeight
+            + (decision.form == .mediumWorkspace ? EditorBottomToolbar.height : 0)
+            + trackMinHeight
+            + 12
+        let minTop: CGFloat = 240
+        let maxTop = max(minTop, decision.contentSize.height - bottomChrome)
+        let topHeight = min(
+            max(workspaceTopHeightOverride ?? decision.previewSize.height, minTop),
+            maxTop
+        )
+
+        return VStack(spacing: 0) {
             HStack(spacing: 0) {
                 if decision.form == .wideWorkspace {
                     EditorToolRail(
@@ -205,6 +263,24 @@ public struct ClipEditorView: View {
                         topInset: decision.topControlInset
                     )
                     Divider().background(Color.white.opacity(0.08))
+
+                    if decision.contentSize.width >= 1000 {
+                        EditorMediaPanel(
+                            isCollapsed: $isMediaPanelCollapsed,
+                            onPhotos: {
+                                pendingVisualTrackID = nil
+                                showAddMediaPicker = true
+                            },
+                            onFiles: {
+                                pendingVisualTrackID = nil
+                                showFileImporter = true
+                            },
+                            onDropURLs: { urls in
+                                Task { await loadDroppedMediaURLs(urls) }
+                            }
+                        )
+                        Divider().background(Color.white.opacity(0.08))
+                    }
                 }
 
                 EditorPreviewView(
@@ -226,10 +302,16 @@ public struct ClipEditorView: View {
                     onAudioTargetConsumed: { pendingAudioTrackID = nil }
                 )
             }
-            .frame(height: max(decision.previewSize.height, 1))
+            .frame(height: topHeight)
             .background(Color.black)
 
-            Divider().background(Color.white.opacity(0.08))
+            EditorWorkspaceDivider(
+                topHeight: Binding(
+                    get: { topHeight },
+                    set: { workspaceTopHeightOverride = $0 }
+                ),
+                range: minTop...maxTop
+            )
 
             editorControlBar
             trackPane
@@ -362,6 +444,31 @@ public struct ClipEditorView: View {
             addSegmentButton
                 .padding(.top, TrackCanvasView.rulerHeight + TrackCanvasView.SegmentVisuals.blockVPadding)
                 .padding(.trailing, 8)
+        }
+        .overlay {
+            if isMediaDropTargeted {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.yellow, lineWidth: 2)
+                        .padding(3)
+
+                    Text("拖入以添加到时间线")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.yellow, in: Capsule())
+                }
+                .allowsHitTesting(false)
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard !urls.isEmpty else { return false }
+            pendingVisualTrackID = nil
+            Task { await loadDroppedMediaURLs(urls) }
+            return true
+        } isTargeted: { isTargeted in
+            isMediaDropTargeted = isTargeted
         }
     }
 
@@ -509,6 +616,18 @@ public struct ClipEditorView: View {
             matching: .any(of: [.images, .videos]),
             photoLibrary: .shared()
         )
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.movie, .image],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                Task { await loadDroppedMediaURLs(urls) }
+            case .failure(let error):
+                onPersistenceError?(error)
+            }
+        }
     }
 
     // MARK: - Observers & Toolbar
@@ -608,9 +727,20 @@ public struct ClipEditorView: View {
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    pendingVisualTrackID = nil
-                    showAddMediaPicker = true
+                Menu {
+                    Button {
+                        pendingVisualTrackID = nil
+                        showAddMediaPicker = true
+                    } label: {
+                        Label("照片与视频", systemImage: "photo.on.rectangle")
+                    }
+
+                    Button {
+                        pendingVisualTrackID = nil
+                        showFileImporter = true
+                    } label: {
+                        Label("文件", systemImage: "folder")
+                    }
                 } label: {
                     Label("导入", systemImage: "plus.rectangle.on.rectangle")
                 }
@@ -621,6 +751,7 @@ public struct ClipEditorView: View {
                     Label("撤销", systemImage: "arrow.uturn.backward")
                 }
                 .disabled(!store.canUndo)
+                .keyboardShortcut("z", modifiers: .command)
 
                 Button {
                     store.redo()
@@ -628,6 +759,7 @@ public struct ClipEditorView: View {
                     Label("重做", systemImage: "arrow.uturn.forward")
                 }
                 .disabled(!store.canRedo)
+                .keyboardShortcut("z", modifiers: [.command, .shift])
 
                 Button {
                     if workspaceForm == .mediumWorkspace || workspaceForm == .wideWorkspace {
@@ -674,6 +806,7 @@ public struct ClipEditorView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
+        .hoverEffect(.highlight)
     }
 
     private func handleEmptyTrackAdd(trackID: UUID, kind: EditorTrack.Kind) {
@@ -866,16 +999,36 @@ public struct ClipEditorView: View {
         }
         guard !pendingURLs.isEmpty else { return }
 
-        // 2) 批量落库：一次复制进 .tlkbundle Media/（持久），返回库内 URL（顺序一致）。
-        let libraryURLs = await libraryStore.addMedia(urls: pendingURLs)
+        await addLibraryMedia(urls: pendingURLs, targetTrackID: targetTrackID)
 
-        // 3) 清理图片 staging 文件（库内已有持久副本）。
+        // Clean up image staging files after the library has its own copy.
         for url in stagingFiles {
             try? FileManager.default.removeItem(at: url)
         }
+    }
+
+    /// Imports dropped or picked file URLs into the library, then appends the
+    /// resulting media to the timeline.
+    private func loadDroppedMediaURLs(_ urls: [URL]) async {
+        guard !urls.isEmpty else { return }
+
+        let targetTrackID = await MainActor.run { pendingVisualTrackID }
+        let scopedURLs = urls.filter { $0.startAccessingSecurityScopedResource() }
+        defer {
+            for url in scopedURLs {
+                url.stopAccessingSecurityScopedResource()
+            }
+            Task { @MainActor in pendingVisualTrackID = nil }
+        }
+
+        await addLibraryMedia(urls: urls, targetTrackID: targetTrackID)
+    }
+
+    private func addLibraryMedia(urls: [URL], targetTrackID: UUID?) async {
+        // One bulk copy into .tlkbundle Media/ keeps the original order.
+        let libraryURLs = await libraryStore.addMedia(urls: urls)
         guard !libraryURLs.isEmpty else { return }
 
-        // 4) 逐个取时长（视频有、图片 nil），一次 MainActor 批量加时间线。
         var segments: [(url: URL, native: Double?)] = []
         for libraryURL in libraryURLs {
             let type = try? libraryURL.resourceValues(forKeys: [.contentTypeKey]).contentType
@@ -883,6 +1036,7 @@ public struct ClipEditorView: View {
             let native = isVideo ? await avDuration(of: libraryURL) : nil
             segments.append((libraryURL, native))
         }
+
         await MainActor.run {
             for (url, native) in segments {
                 store.addVisualSegment(

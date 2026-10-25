@@ -253,6 +253,7 @@ private struct ProjectCardView: View {
         .padding(8)
         .background(Color(white: 0.11))
         .cornerRadius(10)
+        .hoverEffect(.highlight)
     }
 
     private static let dateFormatter: DateFormatter = {
