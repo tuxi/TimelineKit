@@ -16,6 +16,9 @@ import TimelineKitUISharedViews
 /// Tapping a segment ONLY selects it.  Edit panels are opened via the bottom toolbar.
 public struct ClipEditorView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.editorLayoutMode) private var layoutMode
     @State private var store: EditorStore
     @State private var libraryStore = TimelineLibraryStore()
     @State private var activeProjectID: UUID?
@@ -121,7 +124,8 @@ public struct ClipEditorView: View {
 
     private var editorContent: some View {
         GeometryReader { geo in
-            let previewHeight = UIDevice.current.userInterfaceIdiom == .pad ? geo.size.height * 0.62 : geo.size.height * 0.53
+            let decision = adaptiveLayout(for: geo)
+            let previewHeight = decision?.previewSize.height ?? legacyPreviewHeight(for: geo)
 
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
@@ -169,10 +173,69 @@ public struct ClipEditorView: View {
             .animation(.spring(duration: 0.25), value: activeToolCategory)
             .overlay {
                 #if DEBUG
-                EditorLayoutDebugOverlay()
+                EditorLayoutDebugOverlay(
+                    fixedChromeHeight: controlBarHeight + EditorBottomToolbar.height,
+                    minTimelineHeight: trackMinHeight
+                )
                 #endif
             }
         }
+    }
+
+    // MARK: - Adaptive layout
+
+    /// Returns a policy decision only when the adaptive mode is enabled and the
+    /// current arrangement is the proven stacked layout. Fold-aware placement
+    /// lands with the Duo pass.
+    private func adaptiveLayout(for geo: GeometryProxy) -> EditorLayoutDecision? {
+        guard layoutMode == .adaptive else { return nil }
+        let decision = EditorLayoutPolicy.decide(layoutInput(for: geo))
+        guard decision.foldAxis == .none else { return nil }
+        return decision
+    }
+
+    private func layoutInput(for geo: GeometryProxy) -> EditorLayoutInput {
+        var metrics = EditorLayoutMetrics()
+        metrics.minTimelineHeight = trackMinHeight
+
+        let chromeHeight = controlBarHeight + EditorBottomToolbar.height
+
+        // The editor's GeometryReader already sits inside the navigation
+        // content, so its size is the layout bounds; applying safe-area insets
+        // again would double-count them.
+        if #available(iOS 27.1, *) {
+            return EditorLayoutAdapter.input(
+                size: geo.size,
+                safeAreaInsets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
+                horizontalSizeClass: horizontalSizeClass,
+                verticalSizeClass: verticalSizeClass,
+                divisionRegions: geo.reservedRegions(
+                    kind: .division,
+                    options: .includeInactive
+                ),
+                occlusionRegions: geo.reservedRegions(
+                    kind: .occlusion,
+                    options: .includeInactive
+                ),
+                fixedChromeHeight: chromeHeight,
+                metrics: metrics
+            )
+        }
+
+        return EditorLayoutInput(
+            horizontalSizeClass: horizontalSizeClass == .regular ? .regular : .compact,
+            verticalSizeClass: verticalSizeClass == .regular ? .regular : .compact,
+            containerSize: geo.size,
+            safeAreaInsets: .zero,
+            fixedChromeHeight: chromeHeight,
+            metrics: metrics
+        )
+    }
+
+    private func legacyPreviewHeight(for geo: GeometryProxy) -> CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad
+            ? geo.size.height * 0.62
+            : geo.size.height * 0.53
     }
 
     // MARK: - Sheets & Presentation Modifiers

@@ -14,8 +14,8 @@ final class EditorLayoutPolicyTests: XCTestCase {
         XCTAssertFalse(decision.showsAuxiliaryPanel)
         XCTAssertFalse(decision.showsInspector)
         XCTAssertEqual(decision.previewSize.width, 390, accuracy: 0.01)
-        XCTAssertEqual(decision.previewSize.height, 383.72, accuracy: 0.01)
-        XCTAssertEqual(decision.timelineSize.height, 340.28, accuracy: 0.01)
+        XCTAssertEqual(decision.previewSize.height, 447.32, accuracy: 0.01)
+        XCTAssertEqual(decision.timelineSize.height, 276.68, accuracy: 0.01)
         XCTAssertEqual(decision.timelineDensity, .regular)
     }
 
@@ -27,7 +27,8 @@ final class EditorLayoutPolicyTests: XCTestCase {
         XCTAssertEqual(decision.form, .mediumWorkspace)
         XCTAssertTrue(decision.showsAuxiliaryPanel)
         XCTAssertFalse(decision.showsInspector)
-        XCTAssertEqual(decision.previewSize.height, 615.04, accuracy: 0.01)
+        XCTAssertEqual(decision.previewSize.height, 689.44, accuracy: 0.01)
+        XCTAssertEqual(decision.timelineSize.height, 302.56, accuracy: 0.01)
     }
 
     func testWideWorkspaceShowsInspector() {
@@ -98,6 +99,19 @@ final class EditorLayoutPolicyTests: XCTestCase {
         XCTAssertEqual(decision.previewSize.height, 120, accuracy: 0.01)
         XCTAssertEqual(decision.timelineSize.height, 60, accuracy: 0.01)
         XCTAssertEqual(decision.timelineDensity, .compact)
+    }
+
+    func testStackedHeightsFillContentAfterChrome() {
+        let decision = EditorLayoutPolicy.decide(
+            input(container: CGSize(width: 1024, height: 1366), horizontal: .regular)
+        )
+
+        XCTAssertEqual(
+            decision.previewSize.height + decision.timelineSize.height + 120,
+            decision.contentSize.height,
+            accuracy: 0.01
+        )
+        XCTAssertGreaterThanOrEqual(decision.timelineSize.height, 100)
     }
 
     func testTimelineBecomesCompactBelowHeightThreshold() {

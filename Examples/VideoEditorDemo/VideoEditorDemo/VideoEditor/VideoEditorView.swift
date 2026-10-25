@@ -17,10 +17,25 @@ struct VideoEditorView: View {
     @State private var libraryStore = TimelineLibraryStore()
     @State private var showOpenLibrayError: Bool = false
     @State private var openLibrayError: Error?
+    @State private var layoutMode: EditorLayoutMode = ProcessInfo.processInfo.arguments
+        .contains("-TimelineKitAdaptiveLayout") ? .adaptive : .legacy
 
     var body: some View {
         NavigationStack {
             ProjectBrowserView(libraryStore: libraryStore)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Menu {
+                            Picker("布局模式", selection: $layoutMode) {
+                                Text("经典布局").tag(EditorLayoutMode.legacy)
+                                Text("自适应布局").tag(EditorLayoutMode.adaptive)
+                            }
+                        } label: {
+                            Label("布局模式", systemImage: "rectangle.3.group")
+                        }
+                        .accessibilityLabel("布局模式")
+                    }
+                }
                 .task {
                     openLibray()
                 }
@@ -43,6 +58,7 @@ struct VideoEditorView: View {
 
 
         }
+        .environment(\.editorLayoutMode, layoutMode)
     }
 
     func openLibray() {

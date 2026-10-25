@@ -250,13 +250,16 @@ public enum EditorLayoutPolicy {
         }
 
         let ratio = form == .phone ? metrics.phonePreviewRatio : metrics.largePreviewRatio
-        let availableHeight = max(0, contentRect.height - max(0, input.fixedChromeHeight))
-        let maxPreviewHeight = max(metrics.minPreviewHeight, availableHeight - metrics.minTimelineHeight)
+        let chromeHeight = max(0, input.fixedChromeHeight)
+        let maxPreviewHeight = max(
+            metrics.minPreviewHeight,
+            contentRect.height - chromeHeight - metrics.minTimelineHeight
+        )
         let previewHeight = min(
-            max(availableHeight * ratio, metrics.minPreviewHeight),
+            max(contentRect.height * ratio, metrics.minPreviewHeight),
             maxPreviewHeight
         )
-        let timelineHeight = max(0, availableHeight - previewHeight)
+        let timelineHeight = max(0, contentRect.height - chromeHeight - previewHeight)
 
         let previewSize = CGSize(width: contentRect.width, height: previewHeight)
         let timelineSize = CGSize(width: contentRect.width, height: timelineHeight)

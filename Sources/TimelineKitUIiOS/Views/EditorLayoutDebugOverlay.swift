@@ -9,8 +9,17 @@ import TimelineKitUISharedViews
 struct EditorLayoutDebugOverlay: View {
     static let launchArgument = "-TimelineKitLayoutDebug"
 
+    private let fixedChromeHeight: CGFloat
+    private let minTimelineHeight: CGFloat
+
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.editorLayoutMode) private var layoutMode
+
+    init(fixedChromeHeight: CGFloat = 120, minTimelineHeight: CGFloat = 140) {
+        self.fixedChromeHeight = fixedChromeHeight
+        self.minTimelineHeight = minTimelineHeight
+    }
 
     var body: some View {
         if ProcessInfo.processInfo.arguments.contains(Self.launchArgument) {
@@ -21,7 +30,9 @@ struct EditorLayoutDebugOverlay: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("layout: \(decision.form.rawValue)")
                         .fontWeight(.semibold)
+                    Text("mode: \(layoutMode.rawValue)")
                     Text("container: \(sizeText(input.containerSize))")
+                    Text("safe: \(insetsText(proxy.safeAreaInsets))")
                     Text("content: \(sizeText(decision.contentSize))")
                     Text("preview: \(sizeText(decision.previewSize))")
                     Text("timeline: \(sizeText(decision.timelineSize)) · \(decision.timelineDensity.rawValue)")
@@ -46,10 +57,15 @@ struct EditorLayoutDebugOverlay: View {
     }
 
     private func makeInput(_ proxy: GeometryProxy) -> EditorLayoutInput {
+        var metrics = EditorLayoutMetrics()
+        metrics.minTimelineHeight = minTimelineHeight
+
+        // Match the editor's input: the proxy is already inside the navigation
+        // content, so safe-area insets must not be applied twice.
         if #available(iOS 27.1, *) {
             return EditorLayoutAdapter.input(
                 size: proxy.size,
-                safeAreaInsets: proxy.safeAreaInsets,
+                safeAreaInsets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
                 horizontalSizeClass: horizontalSizeClass,
                 verticalSizeClass: verticalSizeClass,
                 divisionRegions: proxy.reservedRegions(
@@ -59,7 +75,9 @@ struct EditorLayoutDebugOverlay: View {
                 occlusionRegions: proxy.reservedRegions(
                     kind: .occlusion,
                     options: .includeInactive
-                )
+                ),
+                fixedChromeHeight: fixedChromeHeight,
+                metrics: metrics
             )
         }
 
@@ -67,13 +85,14 @@ struct EditorLayoutDebugOverlay: View {
             horizontalSizeClass: horizontalSizeClass == .regular ? .regular : .compact,
             verticalSizeClass: verticalSizeClass == .regular ? .regular : .compact,
             containerSize: proxy.size,
-            safeAreaInsets: EditorLayoutInsets(
-                top: proxy.safeAreaInsets.top,
-                leading: proxy.safeAreaInsets.leading,
-                bottom: proxy.safeAreaInsets.bottom,
-                trailing: proxy.safeAreaInsets.trailing
-            )
+            safeAreaInsets: .zero,
+            fixedChromeHeight: fixedChromeHeight,
+            metrics: metrics
         )
+    }
+
+    private func insetsText(_ insets: EdgeInsets) -> String {
+        "t\(Int(insets.top.rounded())) l\(Int(insets.leading.rounded())) b\(Int(insets.bottom.rounded())) r\(Int(insets.trailing.rounded()))"
     }
 
     private func sizeText(_ size: CGSize) -> String {
