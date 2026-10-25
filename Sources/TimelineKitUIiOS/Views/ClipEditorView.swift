@@ -167,6 +167,11 @@ public struct ClipEditorView: View {
                 panelOverlay(geo: geo)
             }
             .animation(.spring(duration: 0.25), value: activeToolCategory)
+            .overlay {
+                #if DEBUG
+                EditorLayoutDebugOverlay()
+                #endif
+            }
         }
     }
 
