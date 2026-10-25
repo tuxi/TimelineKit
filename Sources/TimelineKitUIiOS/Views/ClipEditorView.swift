@@ -103,6 +103,7 @@ public struct ClipEditorView: View {
     private let trackMinHeight: CGFloat    = 140
 
     @State private var showAddMediaPicker = false
+    @State private var showInspector = false
     @State private var addMediaItems: [PhotosPickerItem] = []
     @State private var pendingVisualTrackID: UUID?
     @State private var pendingAudioTrackID: UUID?
@@ -143,10 +144,6 @@ public struct ClipEditorView: View {
                     )
                         .frame(height: controlBarHeight)
                         .padding(.horizontal, 12)
-                        .overlay(alignment: .trailing) {
-                            undoRedoButtons
-                                .padding(.trailing, 55)
-                        }
 
                     ZStack(alignment: .topTrailing) {
                         TrackEditorRepresentable(
@@ -272,6 +269,14 @@ public struct ClipEditorView: View {
                     onDismiss: { store.ttsConfigSheetTargets = nil }
                 )
             }
+        }
+        // M1c: the inspector reuses the same panel content as the bottom overlay.
+        .sheet(isPresented: $showInspector) {
+            EditorInspectorSheet(
+                route: toolPanelRoute,
+                store: store,
+                onAudioTargetConsumed: { pendingAudioTrackID = nil }
+            )
         }
         // V5 export-config-panel-spec §5.3：规格按钮 → ExportConfigSheet
         .sheet(isPresented: $showExportConfig) {
@@ -405,24 +410,49 @@ public struct ClipEditorView: View {
                         draftStore.unbind()
                     }
                 } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(width: 36, height: 36)
+                    Label("关闭", systemImage: "xmark")
+                }
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    pendingVisualTrackID = nil
+                    showAddMediaPicker = true
+                } label: {
+                    Label("导入", systemImage: "plus.rectangle.on.rectangle")
                 }
 
-            }
-            // V5 export-config-panel-spec §5.1：规格按钮在导出按钮**左侧**。
-            // 用单 ToolbarItem + HStack 保证 [规格][导出] 视觉顺序在任何 iOS 版本下一致
-            // （多 ToolbarItem 在同 placement 的排序行为版本间有差异，单 HStack 可预测）。
-            ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 8) {
-                    if let editorAccessory {
-                        editorAccessory(store)
-                    }
-                    specButton
-                    exportButton
+                Button {
+                    store.undo()
+                } label: {
+                    Label("撤销", systemImage: "arrow.uturn.backward")
                 }
+                .disabled(!store.canUndo)
+
+                Button {
+                    store.redo()
+                } label: {
+                    Label("重做", systemImage: "arrow.uturn.forward")
+                }
+                .disabled(!store.canRedo)
+
+                Button {
+                    showInspector = true
+                } label: {
+                    Label("检查器", systemImage: "slider.horizontal.3")
+                }
+            }
+            // Separate trailing items so the system can overflow each action
+            // individually on compact widths and Duo vertical bars.
+            if let editorAccessory {
+                ToolbarItem(placement: .topBarTrailing) {
+                    editorAccessory(store)
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                specButton
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                exportButton
             }
             ToolbarItem(placement: .title) {
                 Text(store.timeline.metadata.productName ?? "剪辑")
@@ -432,22 +462,6 @@ public struct ClipEditorView: View {
     }
 
     // MARK: - Toolbar Items
-
-    private var undoRedoButtons: some View {
-        HStack(spacing: 4) {
-            Button(action: { store.undo() }) {
-                Image(systemName: "arrow.uturn.backward")
-            }
-            .disabled(!store.canUndo)
-
-            Button(action: { store.redo() }) {
-                Image(systemName: "arrow.uturn.forward")
-            }
-            .disabled(!store.canRedo)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.white)
-    }
 
     private var addSegmentButton: some View {
         Button {
@@ -536,64 +550,67 @@ public struct ClipEditorView: View {
     ///   Priority 3 — `activeToolCategory` alone: category default panels.
     @ViewBuilder
     private func panelOverlay(geo: GeometryProxy) -> some View {
-        // ── Priority 1: Full edit panels ───────────────────────────────────
-        if let segID = store.selection.editingSegmentID,
-           let seg = store.timeline.segment(id: segID),
-           (seg.isText || seg.isSubtitle) {
-            TextEditPanel(segmentID: segID, store: store)
-                .frame(maxHeight: geo.size.height * 0.45)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        } else if let segID = store.selection.editingSegmentID,
-                  store.timeline.segment(id: segID)?.isAudio == true {
-            AudioEditPanel(segmentID: segID, store: store)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-        // ── Priority 2: Segment shortcut panels ────────────────────────────
-        else if activeToolCategory == .text,
-                let segID = store.selection.singleSelectedID,
-                let seg = store.timeline.segment(id: segID),
-                (seg.isText || seg.isSubtitle) {
-            TextSegmentActionPanel(segmentID: segID, store: store, onDismiss: { activeToolCategory = nil })
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        } else if activeToolCategory == .clip,
-                let segID = store.selection.singleSelectedID,
-                store.timeline.mainTrack?.segment(id: segID) != nil {
-            SegmentReplacePanel(segmentID: segID, store: store, onDismiss: { activeToolCategory = nil })
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        } else if activeToolCategory == .adjust,
-                  let segID = store.selection.singleSelectedID,
-                  store.timeline.mainTrack?.segment(id: segID) != nil {
-            ColorAdjustmentPanel(segmentID: segID, store: store, onDismiss: { activeToolCategory = nil })
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        } else if activeToolCategory == .animation,
-                  let segID = store.selection.singleSelectedID,
-                  store.timeline.mainTrack?.segment(id: segID) != nil {
-            AnimationPickerSheet(segmentID: segID, store: store, onDismiss: { activeToolCategory = nil })
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        } else if activeToolCategory == .audio,
-                  let segID = store.selection.singleSelectedID,
-                  store.timeline.segment(id: segID)?.isAudio == true {
-            AudioSegmentActionPanel(segmentID: segID, store: store, onDismiss: { activeToolCategory = nil })
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-        // ── Priority 3: Category default panels ────────────────────────────
-        else if activeToolCategory == .audio {
-            AudioSecondaryPanel(
+        let route = toolPanelRoute
+
+        if !route.isEmpty {
+            EditorToolPanelContent(
+                route: route,
                 store: store,
-                targetTrackID: pendingAudioTrackID,
-                onTargetConsumed: {
-                    pendingAudioTrackID = nil
-                },
-                onDismiss: {
-                    activeToolCategory = nil
-                    pendingAudioTrackID = nil
-                }
+                onDismiss: dismissToolPanel,
+                onAudioTargetConsumed: { pendingAudioTrackID = nil }
             )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        } else if let category = activeToolCategory {
-            EditorSecondaryToolPanel(category: category, store: store, onDismiss: { activeToolCategory = nil })
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+            .frame(maxHeight: route.maxHeightFraction.map { geo.size.height * $0 })
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
+    }
+
+    /// Presentation-independent panel route. The bottom overlay and the
+    /// inspector sheet both render this route, so edit behavior is shared.
+    private var toolPanelRoute: EditorToolPanelRoute {
+        // Priority 1: full segment editing.
+        if let segmentID = store.selection.editingSegmentID,
+           let segment = store.timeline.segment(id: segmentID) {
+            if segment.isText || segment.isSubtitle {
+                return .textEdit(segmentID: segmentID)
+            }
+            if segment.isAudio {
+                return .audioEdit(segmentID: segmentID)
+            }
+        }
+
+        // Priority 2: segment shortcut panels.
+        if let category = activeToolCategory,
+           let segmentID = store.selection.singleSelectedID,
+           let segment = store.timeline.segment(id: segmentID) {
+            switch category {
+            case .text where segment.isText || segment.isSubtitle:
+                return .textActions(segmentID: segmentID)
+            case .clip where store.timeline.mainTrack?.segment(id: segmentID) != nil:
+                return .clipActions(segmentID: segmentID)
+            case .adjust where store.timeline.mainTrack?.segment(id: segmentID) != nil:
+                return .adjust(segmentID: segmentID)
+            case .animation where store.timeline.mainTrack?.segment(id: segmentID) != nil:
+                return .animation(segmentID: segmentID)
+            case .audio where segment.isAudio:
+                return .audioActions(segmentID: segmentID)
+            default:
+                break
+            }
+        }
+
+        // Priority 3: category defaults.
+        if activeToolCategory == .audio {
+            return .audioDefault(targetTrackID: pendingAudioTrackID)
+        }
+        if let category = activeToolCategory {
+            return .category(category)
+        }
+        return .empty
+    }
+
+    private func dismissToolPanel() {
+        activeToolCategory = nil
+        pendingAudioTrackID = nil
     }
 
     // MARK: - Tool Category Dispatch
@@ -687,12 +704,13 @@ public struct ClipEditorView: View {
     }
 
     private var exportButton: some View {
-        Button("导出") {
+        Button {
             store.pause()
             showExport = true
+        } label: {
+            Label("导出", systemImage: "square.and.arrow.up")
         }
         .foregroundStyle(.white)
-        .fontWeight(.medium)
     }
 
     /// V5 export-config-panel-spec §5.1：规格按钮。常态显示当前生效分辨率。
