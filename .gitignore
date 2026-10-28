@@ -42,3 +42,7 @@ fastlane/test_output
 /Frameworks
 .claude/
 /.codeagent
+
+# Local verification artifacts
+/artifacts/
+*.bak
