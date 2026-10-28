@@ -33,6 +33,7 @@ struct EditorInspectorView: View {
             }
         }
         .background(Color(white: 0.10))
+        .environment(\.colorScheme, .dark)
         .onAppear { normalizeTab() }
         .onChange(of: context) { _, _ in normalizeTab() }
     }
@@ -74,48 +75,66 @@ struct EditorInspectorView: View {
 
     @ViewBuilder
     private var tabStrip: some View {
-        if context.availableTabs.count <= 5 {
-            Picker("检查器标签", selection: $activeTab) {
+        if context.availableTabs.count == 1,
+           let onlyTab = context.availableTabs.first {
+            Text(onlyTab.title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.55))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+        } else if context.availableTabs.count <= 5 {
+            HStack(spacing: 4) {
                 ForEach(context.availableTabs) { tab in
-                    Text(tab.title).tag(tab)
+                    tabButton(tab, fillWidth: true)
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(context.availableTabs) { tab in
-                        Button {
-                            activeTab = tab
-                        } label: {
-                            Label(tab.title, systemImage: tab.systemImage)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(
-                                    activeTab == tab
-                                    ? Color.white
-                                    : Color.white.opacity(0.55)
-                                )
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 7)
-                                        .fill(
-                                            activeTab == tab
-                                            ? Color.white.opacity(0.14)
-                                            : Color.clear
-                                        )
-                                )
-                        }
-                        .buttonStyle(.plain)
+                        tabButton(tab, fillWidth: false)
                     }
                 }
                 .padding(.horizontal, 12)
             }
             .padding(.bottom, 8)
         }
+    }
+
+    private func tabButton(
+        _ tab: EditorInspectorTab,
+        fillWidth: Bool
+    ) -> some View {
+        let isSelected = activeTab == tab
+
+        return Button {
+            activeTab = tab
+        } label: {
+            Text(tab.title)
+                .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(
+                    isSelected
+                    ? Color.black
+                    : Color.white.opacity(0.72)
+                )
+                .frame(maxWidth: fillWidth ? .infinity : nil)
+                .padding(.horizontal, fillWidth ? 4 : 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(
+                            isSelected
+                            ? Color.white
+                            : Color.white.opacity(0.08)
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: - Content
