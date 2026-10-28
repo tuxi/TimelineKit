@@ -300,6 +300,34 @@ public struct ClipEditorView: View {
         )
     }
 
+    /// The tabbed inspector can show transition properties only when it is
+    /// actually visible inline. Every other layout falls back to the transition
+    /// sheet so a badge tap always has a visible result.
+    private var usesInlineTransitionInspector: Bool {
+        inspectorMode == .tabbed
+            && (workspaceForm == .mediumWorkspace
+                || workspaceForm == .wideWorkspace)
+            && !isTabbedInspectorSheetMode
+            && !isWorkspaceInspectorCollapsed
+    }
+
+    private var fallbackTransitionContext: TransitionEditContext? {
+        if let cut = store.selection.selectedCutContext {
+            return cut
+        }
+        guard let transitionID = store.selection.selectedTransitionID,
+              let transition = store.timeline.transitions.first(
+                  where: { $0.id == transitionID }
+              ) else {
+            return nil
+        }
+        return TransitionEditContext(
+            leadingID: transition.leadingSegmentID,
+            trailingID: transition.trailingSegmentID,
+            existingTransition: transition
+        )
+    }
+
     private var mediaPanel: some View {
         EditorMediaPanel(
             isCollapsed: $isMediaPanelCollapsed,
@@ -834,14 +862,10 @@ public struct ClipEditorView: View {
     func editorSheets(_ base: some View) -> some View {
         base
         .background(Color(white: 0.08).ignoresSafeArea())
-        .background(
-            NavigationLink(
-                destination: ExportResultView(store: store, onExport: onExport),
-                isActive: $showExport,
-                label: { EmptyView() }
-            )
-        )
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showExport) {
+            ExportResultView(store: store, onExport: onExport)
+        }
         .sheet(isPresented: Binding(
             get: { store.ttsConfigSheetTargets != nil },
             set: { if !$0 { store.ttsConfigSheetTargets = nil } }
@@ -861,6 +885,26 @@ public struct ClipEditorView: View {
                 store: store,
                 onAudioTargetConsumed: { pendingAudioTrackID = nil }
             )
+        }
+        // Transition fallback for layouts without an inline inspector.
+        .sheet(isPresented: Binding(
+            get: {
+                !usesInlineTransitionInspector
+                    && fallbackTransitionContext != nil
+            },
+            set: { presented in
+                if !presented {
+                    store.selection.selectedTransitionID = nil
+                    store.selection.selectedCutContext = nil
+                    store.selection.editingTransitionContext = nil
+                }
+            }
+        )) {
+            if let context = fallbackTransitionContext {
+                TransitionEditSheet(context: context, store: store)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
         }
         // P2: narrow regular widths open the tabbed inspector as a sheet.
         .sheet(isPresented: $tabbedInspectorSheetRequested) {
