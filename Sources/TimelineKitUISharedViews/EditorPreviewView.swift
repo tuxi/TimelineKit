@@ -83,6 +83,26 @@ public struct EditorPreviewView: View {
                     onDragCommit:  { id, y in store.updateSubtitlePosition(segmentID: id, positionY: y) }
                 )
             }
+            if store.isAwaitingAutomaticCanvas,
+               !store.timeline.tracks.flatMap(\.segments).contains(where: {
+                   switch $0.content {
+                   case .audio: return false
+                   default: return true
+                   }
+               }) {
+                VStack(spacing: 10) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.title2)
+                    Text("添加视频或照片")
+                        .font(.headline)
+                    Text("画布比例将随首个素材自动设置")
+                        .font(.caption)
+                }
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding()
+                .allowsHitTesting(false)
+            }
         }
         .aspectRatio(canvasAspect, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 8))

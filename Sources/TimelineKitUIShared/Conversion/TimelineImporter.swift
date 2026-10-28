@@ -13,8 +13,12 @@ import ImageIO
 /// - subtitle items (already absolute) → subtitle track segments
 /// - audio (bgm / voice) → dedicated audio track segments
 public enum TimelineImporter {
-    public enum MediaImportError: Error {
+    public enum MediaImportError: LocalizedError {
         case noSupportedMedia
+
+        public var errorDescription: String? {
+            "无法读取所选素材，请选择有效的视频或照片。"
+        }
     }
 
     /// Upper bound for the voice-fit speed-up. Mirrors the clamp applied in
@@ -69,19 +73,26 @@ public enum TimelineImporter {
         }
     }
 
+    /// Omitting canvas matches the first readable visual's displayed dimensions.
+    /// An explicit canvas is preserved. Invalid files are skipped in input order;
+    /// an entirely unsupported selection throws without creating a project.
     public static func importingMedia(
         from urls: [URL],
-        canvas: EditorCanvas = EditorCanvas(width: 720, height: 1080, fps: 30),
+        canvas: EditorCanvas? = nil,
         imageDuration: Double = 3,
         productName: String? = "本地剪辑"
     ) async throws -> EditorTimeline {
         var pool = MaterialsPool()
         var videoTrack = EditorTrack(kind: .video, label: "视频", zPosition: 0, isMainTrack: true)
         var cursor: Double = 0
+        var resolvedCanvas = canvas
 
         for url in urls {
-            guard let imported = try await importMediaAsset(from: url, imageDuration: imageDuration) else {
+            guard let imported = try? await importMediaAsset(from: url, imageDuration: imageDuration) else {
                 continue
+            }
+            if resolvedCanvas == nil {
+                resolvedCanvas = await MediaCanvasResolver.canvas(for: url)
             }
 
             pool.add(imported.asset)
@@ -99,10 +110,13 @@ public enum TimelineImporter {
         }
 
         var timeline = EditorTimeline(
-            canvas: canvas,
+            canvas: resolvedCanvas ?? EditorCanvas(width: 1920, height: 1080, fps: 30),
             tracks: [videoTrack],
             materials: pool,
-            metadata: EditorMetadata(productName: productName)
+            metadata: EditorMetadata(
+                productName: productName,
+                canvasSizingMode: resolvedCanvas == nil ? .automatic : .fixed
+            )
         )
         timeline.normalizeMainTrack()
         return timeline

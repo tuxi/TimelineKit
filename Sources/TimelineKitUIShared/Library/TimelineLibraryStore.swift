@@ -144,13 +144,30 @@ public final class TimelineLibraryStore {
     }
 
     /// 创建一个新项目（空 timeline + 主轨骨架），落库并返回。
-    public func createProject(name: String) throws -> LibraryProject {
+    public func createProject(name: String, canvas: EditorCanvas? = nil) throws -> LibraryProject {
         guard let library else { throw TimelineLibraryError.notABundle(URL(fileURLWithPath: "")) }
-        let canvas = EditorCanvas(width: 1920, height: 1080, fps: 30)
-        var timeline = EditorTimeline(canvas: canvas)
+        var timeline = EditorTimeline(
+            canvas: canvas ?? EditorCanvas(width: 1920, height: 1080, fps: 30),
+            metadata: EditorMetadata(canvasSizingMode: canvas == nil ? .automatic : .fixed)
+        )
         if !timeline.tracks.contains(where: { $0.isMainTrack }) {
             timeline.tracks.append(EditorTrack(id: UUID(), kind: .video, label: "视频", zPosition: 0, segments: [], isMainTrack: true))
         }
+        let project = LibraryProject(name: name, timeline: timeline)
+        try library.saveProject(project)
+        refreshProjects()
+        return project
+    }
+
+    /// Media-first creation. Canceling the picker never calls this API; no
+    /// project is saved if every selected file fails to import/read.
+    public func createProject(name: String, mediaURLs: [URL], canvas: EditorCanvas? = nil) async throws -> LibraryProject {
+        guard let library else { throw TimelineLibraryError.notABundle(URL(fileURLWithPath: "")) }
+        let imported = await addMedia(urls: mediaURLs)
+        let timeline = try await TimelineImporter.importingMedia(
+            from: imported, canvas: canvas, productName: name
+        )
+        guard self.library?.packageURL == library.packageURL else { throw CocoaError(.userCancelled) }
         let project = LibraryProject(name: name, timeline: timeline)
         try library.saveProject(project)
         refreshProjects()

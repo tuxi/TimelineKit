@@ -71,6 +71,39 @@ public final class TimelineDocument: Identifiable {
         mutate(label) { $0 = newTimeline }
     }
 
+    /// Finish the asynchronous metadata read as part of the original import,
+    /// without adding a separate "resize canvas" undo step. History snapshots
+    /// containing that same visual reference receive the derived canvas too;
+    /// snapshots before its insertion remain pending/empty.
+    @discardableResult
+    public func resolveAutomaticCanvas(
+        _ canvas: EditorCanvas,
+        timelineID: UUID,
+        segmentID: UUID,
+        materialID: UUID,
+        materialURL: URL,
+        expectedCanvas: EditorCanvas
+    ) -> Bool {
+        func resolved(_ input: EditorTimeline) -> EditorTimeline? {
+            guard input.id == timelineID,
+                  input.metadata.canvasSizingMode == .automatic,
+                  input.canvas == expectedCanvas,
+                  let segment = input.mainTrack?.segment(id: segmentID),
+                  segment.materialID == materialID,
+                  input.materials[materialID]?.bestURL == materialURL else { return nil }
+            var result = input
+            result.canvas = canvas
+            result.metadata.canvasSizingMode = .fixed
+            return result
+        }
+        guard let updated = resolved(timeline) else { return false }
+        timeline = updated
+        undoStack = undoStack.map { UndoEntry(label: $0.label, snapshot: resolved($0.snapshot) ?? $0.snapshot) }
+        redoStack = redoStack.map { UndoEntry(label: $0.label, snapshot: resolved($0.snapshot) ?? $0.snapshot) }
+        compositionVersion += 1
+        return true
+    }
+
     // MARK: - Undo / Redo
 
     public func undo() {
@@ -104,11 +137,19 @@ public final class TimelineDocument: Identifiable {
 
     public func deleteSegment(id: UUID) {
         let isOnMainTrack = timeline.mainTrack?.segment(id: id) != nil
+        let preservesLegacyCanvas = timeline.metadata.canvasSizingMode == nil
+            && timeline.mainTrack?.segments.contains(where: {
+                switch $0.content {
+                case .image, .video: return true
+                default: return false
+                }
+            }) == true
         let hostTrackID: UUID? = timeline.tracks.first(where: { t in
             !t.isMainTrack && t.segments.contains(where: { $0.id == id })
         })?.id
 
         mutate("删除片段") { tl in
+            if preservesLegacyCanvas { tl.metadata.canvasSizingMode = .fixed }
             tl.removeSegment(id: id)
             if isOnMainTrack { tl.repackMainTrack() }
             if let hostID = hostTrackID,

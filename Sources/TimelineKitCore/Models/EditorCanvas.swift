@@ -1,5 +1,13 @@
 import Foundation
 
+/// `automatic` is a pending state: the first readable main-track visual fixes
+/// the canvas. Once resolved (or explicitly chosen), `fixed` survives deletion
+/// of all media and project reopening. Nil on old metadata remains compatible.
+public enum EditorCanvasSizingMode: String, Sendable, Hashable, Codable {
+    case automatic
+    case fixed
+}
+
 public struct EditorCanvas: Sendable, Hashable, Codable {
     public var width: Int
     public var height: Int

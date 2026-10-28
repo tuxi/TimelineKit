@@ -975,36 +975,10 @@ public struct ClipEditorView: View {
             }
         }
 
-        // 1) 逐 item 解码为源 URL（视频用系统副本；图片写 staging 文件）。
-        var pendingURLs: [URL] = []   // 待落库（按选择顺序）
-        var stagingFiles: [URL] = []  // 图片 staging（落库后清理）
-        for item in items {
-            if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
-                pendingURLs.append(movie.url)
-                continue
-            }
-            if let data = try? await item.loadTransferable(type: Data.self) {
-                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                let staging = FileManager.default.temporaryDirectory
-                    .appendingPathComponent(UUID().uuidString)
-                    .appendingPathExtension(ext)
-                do {
-                    try data.write(to: staging)
-                } catch {
-                    continue  // 单个失败跳过
-                }
-                stagingFiles.append(staging)
-                pendingURLs.append(staging)
-            }
-        }
-        guard !pendingURLs.isEmpty else { return }
-
-        await addLibraryMedia(urls: pendingURLs, targetTrackID: targetTrackID)
-
-        // Clean up image staging files after the library has its own copy.
-        for url in stagingFiles {
-            try? FileManager.default.removeItem(at: url)
-        }
+        let selection = await EditorMediaSelection.load(items)
+        defer { selection.removeTemporaryCopies() }
+        guard !selection.urls.isEmpty else { return }
+        await addLibraryMedia(urls: selection.urls, targetTrackID: targetTrackID)
     }
 
     /// Imports dropped or picked file URLs into the library, then appends the
@@ -1046,6 +1020,7 @@ public struct ClipEditorView: View {
                 )
             }
         }
+        await store.waitForAutomaticCanvasResolution()
     }
 
     private func avDuration(of url: URL) async -> Double? {

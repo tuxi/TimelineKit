@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import SwiftUI
+import PhotosUI
 import TimelineKitCore
 import TimelineKitUIShared
 
@@ -10,6 +11,10 @@ public struct ProjectBrowserView: View {
     @Bindable var libraryStore: TimelineLibraryStore
     @State private var showCreateProject = false
     @State private var newProjectName = ""
+    @State private var showMediaPicker = false
+    @State private var selectedMedia: [PhotosPickerItem] = []
+    @State private var isCreatingProject = false
+    @State private var createdProject: LibraryProject?
     @State private var renameTarget: LibraryProject?
     @State private var renameText = ""
     @State private var deleteTarget: LibraryProject?
@@ -65,24 +70,66 @@ public struct ProjectBrowserView: View {
         .navigationTitle("项目")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
-                    showCreateProject = true
+                    showMediaPicker = true
                 } label: {
-                    Image(systemName: "plus")
+                    Label("新建项目", systemImage: "plus")
+                }
+                .accessibilityIdentifier("TimelineKit.NewProject")
+
+                Menu {
+                    Button {
+                        showCreateProject = true
+                    } label: {
+                        Label("创建空白项目", systemImage: "doc.badge.plus")
+                    }
+                } label: {
+                    Label("更多创建方式", systemImage: "ellipsis.circle")
                 }
             }
         }
         .navigationDestination(for: UUID.self) { projectID in
             editorDestination(projectID: projectID)
         }
+        .navigationDestination(isPresented: Binding(
+            get: { createdProject != nil },
+            set: { if !$0 { createdProject = nil } }
+        )) {
+            if let project = createdProject {
+                ClipEditorView(libraryStore: libraryStore, project: project, persistence: .library)
+            }
+        }
+        .photosPicker(
+            isPresented: $showMediaPicker,
+            selection: $selectedMedia,
+            maxSelectionCount: 8,
+            selectionBehavior: .ordered,
+            matching: .any(of: [.images, .videos]),
+            photoLibrary: .shared()
+        )
+        .onChange(of: selectedMedia) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await createProject(from: items) }
+        }
+        .disabled(isCreatingProject)
+        .overlay {
+            if isCreatingProject {
+                ZStack {
+                    Color.black.opacity(0.65)
+                    ProgressView("正在创建项目…")
+                        .tint(.white)
+                        .foregroundStyle(.white)
+                }
+            }
+        }
         // 新建项目：命名弹窗。
-        .alert("新建项目", isPresented: $showCreateProject) {
+        .alert("创建空白项目", isPresented: $showCreateProject) {
             TextField("项目名称", text: $newProjectName, prompt: Text("未命名项目"))
             Button("创建") { createProject() }
             Button("取消", role: .cancel) { newProjectName = "" }
         } message: {
-            Text("项目是一条时间线，你可以在其中排列和编辑媒体。")
+            Text("添加首个视频或照片后，自动设置画布比例。")
         }
         // 重命名弹窗。
         .alert("重命名项目", isPresented: Binding(
@@ -145,9 +192,13 @@ public struct ProjectBrowserView: View {
             Text("还没有项目")
                 .font(.headline)
                 .foregroundStyle(.white.opacity(0.7))
-            Text("点击右上角 + 创建一个新项目")
+            Text("选择视频或照片，自动设置画布比例")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.45))
+            Button("选择素材新建项目") { showMediaPicker = true }
+                .buttonStyle(.borderedProminent)
+            Button("创建空白项目") { showCreateProject = true }
+                .buttonStyle(.bordered)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 160)
@@ -160,7 +211,8 @@ public struct ProjectBrowserView: View {
         if let project = libraryStore.projects.first(where: { $0.id == projectID }) {
             ClipEditorView(
                 libraryStore: libraryStore,
-                project: project
+                project: project,
+                persistence: .library
             )
         } else {
             Text("项目不存在")
@@ -174,7 +226,29 @@ public struct ProjectBrowserView: View {
         let name = newProjectName.isEmpty ? "未命名项目" : newProjectName
         newProjectName = ""
         do {
-            _ = try libraryStore.createProject(name: name)
+            createdProject = try libraryStore.createProject(name: name)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func createProject(from items: [PhotosPickerItem]) async {
+        guard !isCreatingProject else { return }
+        isCreatingProject = true
+        defer {
+            isCreatingProject = false
+            selectedMedia = []
+        }
+        let selection = await EditorMediaSelection.load(items)
+        defer { selection.removeTemporaryCopies() }
+        guard !selection.urls.isEmpty else {
+            errorMessage = "无法读取所选素材，请重新选择视频或照片。"
+            return
+        }
+        do {
+            createdProject = try await libraryStore.createProject(
+                name: "未命名项目", mediaURLs: selection.urls
+            )
         } catch {
             errorMessage = error.localizedDescription
         }

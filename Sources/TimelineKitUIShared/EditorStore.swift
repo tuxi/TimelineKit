@@ -57,15 +57,47 @@ public final class EditorStore: @MainActor Identifiable {
     @ObservationIgnored nonisolated(unsafe) private var playerTimeObserver: Any?
     @ObservationIgnored nonisolated(unsafe) private var playerEndObserver: Any?
     private var activePlayer: AVPlayer? { coordinatorPlayer ?? player }
+    private let legacyEmptyTimelineID: UUID?
+    private let legacyEmptyCanvas: EditorCanvas
+    @ObservationIgnored private var automaticCanvasTask: Task<Void, Never>?
+    @ObservationIgnored private var canvasCandidates: [CanvasCandidate] = []
+
+    private struct CanvasCandidate {
+        let timelineID: UUID
+        let segmentID: UUID
+        let materialID: UUID
+        let url: URL
+        let expectedCanvas: EditorCanvas
+    }
+
+    /// Legacy empty drafts remain eligible, while populated legacy projects
+    /// keep their existing canvas. New projects persist this policy explicitly.
+    public var isAwaitingAutomaticCanvas: Bool {
+        if let mode = timeline.metadata.canvasSizingMode { return mode == .automatic }
+        return timeline.id == legacyEmptyTimelineID && timeline.canvas == legacyEmptyCanvas
+            && !hasMainVisual
+    }
+
+    private var hasMainVisual: Bool {
+        timeline.mainTrack?.segments.contains { segment in
+            switch segment.content {
+            case .video, .image: return true
+            default: return false
+            }
+        } == true
+    }
 
     // MARK: - Init
 
     public init(timeline: EditorTimeline) {
         self.document = TimelineDocument(timeline: timeline)
+        legacyEmptyTimelineID = timeline.tracks.allSatisfy { $0.segments.isEmpty } ? timeline.id : nil
+        legacyEmptyCanvas = timeline.canvas
         // Wire coordinator callbacks
         document.onDidMutateSubtitle = { [weak self] tl in
             self?.coordinator?.refreshTimelineRuntimeTextLayers(timeline: tl)
         }
+        resumeAutomaticCanvasResolution()
     }
 
     deinit {
@@ -143,8 +175,14 @@ public final class EditorStore: @MainActor Identifiable {
     public func applyExternalTimeline(_ newTimeline: EditorTimeline, label: String = "Agent 剪辑") {
         document.applyExternalTimeline(newTimeline, label: label)
     }
-    public func undo() { document.undo() }
-    public func redo() { document.redo() }
+    public func undo() {
+        document.undo()
+        resumeAutomaticCanvasResolution()
+    }
+    public func redo() {
+        document.redo()
+        resumeAutomaticCanvasResolution()
+    }
 
     // MARK: - Common Operations
 
@@ -316,16 +354,19 @@ public final class EditorStore: @MainActor Identifiable {
         }
 #endif
         document.replaceSegmentMaterial(segmentID: segmentID, localURL: localURL, nativeDuration: nativeDuration, clipInTime: clipInTime)
+        enqueueAutomaticCanvas(for: segmentID)
     }
 
     // MARK: - Media Import
 
     @discardableResult public func addVisualSegment(localURL: URL, nativeDuration: Double?, targetTrackID: UUID? = nil) -> UUID? {
         let segmentID = UUID(); let playheadTime = selection.playheadTime
-        // 画布未定型（时间线无任何片段）→ 首个视觉片段加入后按媒体实际
-        // 尺寸/帧率调整画布（FCP 行为）。异步触发，见 adjustCanvasForFirstClipIfNeeded。
-        let timelineWasEmpty = timeline.tracks.allSatisfy { $0.segments.isEmpty }
+        // Pending automatic projects follow the first readable main visual.
+        // Existing audio/text, overlays and later batch inserts do not consume
+        // that decision; explicit/fixed canvases are preserved.
+        let awaitsCanvas = isAwaitingAutomaticCanvas
         mutate("添加素材") { tl in
+            if awaitsCanvas { tl.metadata.canvasSizingMode = .automatic }
             let trackIndex: Int?
             if let targetTrackID {
                 trackIndex = tl.tracks.firstIndex { $0.id == targetTrackID && !$0.isMainTrack && $0.kind == .overlay }
@@ -355,10 +396,7 @@ public final class EditorStore: @MainActor Identifiable {
             }
         }
         if timeline.segment(id: segmentID) != nil {
-            if timelineWasEmpty {
-                // 首个视觉片段：异步读取媒体尺寸/帧率并定型画布。
-                Task { await adjustCanvasForFirstClipIfNeeded(localURL: localURL) }
-            }
+            enqueueAutomaticCanvas(for: segmentID)
             if let targetTrackID {
                 document.cancelPendingCleanup(for: targetTrackID)
             }
@@ -370,59 +408,79 @@ public final class EditorStore: @MainActor Identifiable {
         return nil
     }
 
-    // MARK: - Smart Canvas (first-clip sizing, FCP behavior)
+    // MARK: - Automatic canvas
 
-    /// 首个视觉片段定型画布：时间线无任何片段时，按媒体实际尺寸/帧率调整
-    /// 画布；已有片段后画布固定不再调整（调用方无需判断，方法内部双重检查）。
-    ///
-    /// - 图片：ImageIO 读像素宽高，fps 保持不变。
-    /// - 视频：AVAsset visual track 读 naturalSize（应用 preferredTransform，
-    ///   处理 iPhone 竖拍旋转元数据）+ nominalFrameRate（四舍五入）。
-    /// - 宽高偶数化（H.264 编码要求）。
-    public func adjustCanvasForFirstClipIfNeeded(localURL: URL) async {
-        // 画布已定型（除首个片段外还有其他片段）→ 不调整。
-        // 注：调用时机是首个片段刚加入（count == 1），不能要求"完全无片段"。
-        guard timeline.tracks.flatMap({ $0.segments }).count <= 1 else { return }
-        guard let dims = await Self.readMediaDimensions(url: localURL) else { return }
-        mutate("调整画布") { tl in
-            // 双重检查：异步读取期间用户可能已加更多片段。
-            guard tl.tracks.flatMap({ $0.segments }).count <= 1 else { return }
-            let w = max(dims.width - (dims.width % 2), 2)
-            let h = max(dims.height - (dims.height % 2), 2)
-            tl.canvas = EditorCanvas(width: w, height: h, fps: dims.fps)
+    /// Explicit host/user settings always win over pending media metadata.
+    public func setCanvas(_ canvas: EditorCanvas) {
+        mutate("设置画布") { timeline in
+            timeline.canvas = canvas
+            timeline.metadata.canvasSizingMode = .fixed
         }
     }
 
-    /// 读取媒体显示尺寸与帧率（图片 ImageIO / 视频 AVAsset）。
-    /// 音频文件返回 nil（不调整画布）。
-    static func readMediaDimensions(url: URL) async -> (width: Int, height: Int, fps: Int)? {
-        // 图片：ImageIO 像素宽高 + EXIF 方向。
-        if let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-           let typeID = CGImageSourceGetType(src),
-           UTType(typeID as String)?.conforms(to: .image) == true,
-           let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
-           let w = props[kCGImagePropertyPixelWidth] as? Int,
-           let h = props[kCGImagePropertyPixelHeight] as? Int,
-           w > 0, h > 0 {
-            // EXIF orientation 5–8：像素旋转 90°/270°，显示宽高互换
-            // （竖拍照片像素是横的 + orientation 标记）。
-            let raw = props[kCGImagePropertyOrientation] as? UInt32 ?? 1
-            let rotated90 = (5...8).contains(Int(raw))
-            return rotated90 ? (h, w, 30) : (w, h, 30)
+    /// Compatibility entry point. All normal append/insert paths enqueue the
+    /// same serial resolution, independent of how many clips are in a batch.
+    public func adjustCanvasForFirstClipIfNeeded(localURL: URL) async {
+        if let segment = timeline.mainTrack?.segments.first(where: {
+            timeline.materials[$0.materialID]?.bestURL == localURL
+        }) {
+            enqueueAutomaticCanvas(for: segment.id)
         }
-        // 视频：visual track 的显示尺寸（应用旋转元数据）+ 帧率。
-        let asset = AVURLAsset(url: url)
-        guard let tracks = try? await asset.loadTracks(withMediaType: .video),
-              let track = tracks.first else { return nil }
-        guard let size = try? await track.load(.naturalSize),
-              let transform = try? await track.load(.preferredTransform) else { return nil }
-        let displayed = size.applying(transform)
-        let w = Int(abs(displayed.width))
-        let h = Int(abs(displayed.height))
-        guard w > 0, h > 0 else { return nil }
-        let nominal = (try? await track.load(.nominalFrameRate)) ?? 0
-        let fps = nominal > 0 ? Int(nominal.rounded()).clamped(to: 10...120) : 30
-        return (w, h, fps)
+        await waitForAutomaticCanvasResolution()
+    }
+
+    /// Await before saving a newly assembled batch/project. Existing synchronous
+    /// import APIs remain source-compatible and also resolve in the background.
+    public func waitForAutomaticCanvasResolution() async {
+        await automaticCanvasTask?.value
+    }
+
+    private func resumeAutomaticCanvasResolution() {
+        guard timeline.metadata.canvasSizingMode == .automatic else { return }
+        for segment in timeline.mainTrack?.segments ?? [] {
+            enqueueAutomaticCanvas(for: segment.id)
+        }
+    }
+
+    private func enqueueAutomaticCanvas(for segmentID: UUID) {
+        guard timeline.metadata.canvasSizingMode == .automatic,
+              let segment = timeline.mainTrack?.segment(id: segmentID),
+              let url = timeline.materials[segment.materialID]?.bestURL else { return }
+        switch segment.content {
+        case .image, .video: break
+        default: return
+        }
+        canvasCandidates.append(CanvasCandidate(
+            timelineID: timeline.id, segmentID: segmentID, materialID: segment.materialID,
+            url: url, expectedCanvas: timeline.canvas
+        ))
+        guard automaticCanvasTask == nil else { return }
+        automaticCanvasTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.automaticCanvasTask = nil
+                self.canvasCandidates.removeAll()
+            }
+            while self.timeline.metadata.canvasSizingMode == .automatic,
+                  !self.canvasCandidates.isEmpty {
+                let candidate = self.canvasCandidates.removeFirst()
+                guard let canvas = await MediaCanvasResolver.canvas(
+                    for: candidate.url, fallbackFrameRate: candidate.expectedCanvas.fps
+                ), self.timeline.materials[candidate.materialID]?.bestURL == candidate.url else { continue }
+                if self.document.resolveAutomaticCanvas(
+                    canvas, timelineID: candidate.timelineID, segmentID: candidate.segmentID,
+                    materialID: candidate.materialID, materialURL: candidate.url,
+                    expectedCanvas: candidate.expectedCanvas
+                ) { return }
+            }
+        }
+    }
+
+    /// Kept for existing in-module tests/callers; resolution is shared with the
+    /// importer and respects image orientation and video preferredTransform.
+    static func readMediaDimensions(url: URL) async -> (width: Int, height: Int, fps: Int)? {
+        guard let canvas = await MediaCanvasResolver.canvas(for: url) else { return nil }
+        return (canvas.width, canvas.height, canvas.fps)
     }
 
     /// 把素材插入到指定时间（主轨或 overlay 轨），不自动推挤后续片段。
@@ -432,7 +490,9 @@ public final class EditorStore: @MainActor Identifiable {
     @discardableResult
     public func insertVisualSegment(localURL: URL, nativeDuration: Double?, at time: Double, targetTrackID: UUID? = nil) -> UUID? {
         let segmentID = UUID()
+        let awaitsCanvas = isAwaitingAutomaticCanvas
         mutate("插入素材") { tl in
+            if awaitsCanvas { tl.metadata.canvasSizingMode = .automatic }
             let trackIndex: Int?
             if let targetTrackID {
                 trackIndex = tl.tracks.firstIndex { $0.id == targetTrackID && !$0.isMainTrack && $0.kind == .overlay }
@@ -458,7 +518,9 @@ public final class EditorStore: @MainActor Identifiable {
                 tl.tracks[ti].pendingUserCreated = false
             }
         }
-        return timeline.segment(id: segmentID) != nil ? segmentID : nil
+        guard timeline.segment(id: segmentID) != nil else { return nil }
+        enqueueAutomaticCanvas(for: segmentID)
+        return segmentID
     }
 
     @discardableResult public func addAudioSegment(localURL: URL, nativeDuration: Double, startTime: Double? = nil, targetTrackID: UUID? = nil, ttsSource: SegmentContent.TTSSource? = nil) -> UUID? {

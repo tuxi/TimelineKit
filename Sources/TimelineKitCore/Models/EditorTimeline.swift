@@ -296,6 +296,7 @@ public struct EditorMetadata: Sendable, Hashable, Codable {
     /// `EditorTimeline.effectiveExportConfig` 按 canvas 派生默认。
     /// Codable 默认合成 `decodeIfPresent` 容错——旧草稿 JSON 不含此键时反序列化为 nil。
     public var exportConfig: ExportConfig?
+    public var canvasSizingMode: EditorCanvasSizingMode?
 
     public init(
         sourceTaskID: Int? = nil,
@@ -303,7 +304,8 @@ public struct EditorMetadata: Sendable, Hashable, Codable {
         productName: String? = nil,
         createdAt: Date = Date(),
         renderType: String? = nil,
-        exportConfig: ExportConfig? = nil
+        exportConfig: ExportConfig? = nil,
+        canvasSizingMode: EditorCanvasSizingMode? = nil
     ) {
         self.sourceTaskID    = sourceTaskID
         self.sourceWorkflow  = sourceWorkflow
@@ -311,6 +313,7 @@ public struct EditorMetadata: Sendable, Hashable, Codable {
         self.createdAt       = createdAt
         self.renderType      = renderType
         self.exportConfig    = exportConfig
+        self.canvasSizingMode = canvasSizingMode
     }
 }
 
