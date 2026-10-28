@@ -370,13 +370,10 @@ public final class ClipEditorViewController: UIViewController {
             if let existing {
                 self?.store.selection.selectTransition(existing.id)
             } else {
-                self?.store.selection.deselect()
-                self?.store.selection.editingTransitionContext =
-                    TransitionEditContext(
-                        leadingID: leadingID,
-                        trailingID: trailingID,
-                        existingTransition: nil
-                    )
+                self?.store.selection.selectCut(
+                    leadingID: leadingID,
+                    trailingID: trailingID
+                )
             }
         }
 

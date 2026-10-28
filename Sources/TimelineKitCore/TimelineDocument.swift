@@ -788,6 +788,7 @@ public struct SelectionState: Sendable {
     public var editingSegmentID: UUID?
     public var editingTransitionContext: TransitionEditContext?
     public var selectedTransitionID: UUID?
+    public var selectedCutContext: TransitionEditContext?
 
     public var hasSingleSelection: Bool {
         selectedSegmentIDs.count == 1
@@ -800,6 +801,7 @@ public struct SelectionState: Sendable {
         selectedSegmentIDs = [id]
         editingSegmentID = id
         selectedTransitionID = nil
+        selectedCutContext = nil
     }
 
     public mutating func selectTransition(_ id: UUID) {
@@ -807,12 +809,26 @@ public struct SelectionState: Sendable {
         editingSegmentID = nil
         editingTransitionContext = nil
         selectedTransitionID = id
+        selectedCutContext = nil
+    }
+
+    public mutating func selectCut(leadingID: UUID, trailingID: UUID) {
+        selectedSegmentIDs.removeAll()
+        editingSegmentID = nil
+        editingTransitionContext = nil
+        selectedTransitionID = nil
+        selectedCutContext = TransitionEditContext(
+            leadingID: leadingID,
+            trailingID: trailingID,
+            existingTransition: nil
+        )
     }
 
     public mutating func deselect() {
         selectedSegmentIDs.removeAll()
         editingSegmentID = nil
         selectedTransitionID = nil
+        selectedCutContext = nil
     }
 }
 

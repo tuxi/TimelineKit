@@ -17,6 +17,7 @@ struct EditorInspectorView: View {
     var selectionCount: Int = 1
     var projectName: String? = nil
     var transitionID: UUID? = nil
+    var cutContext: TransitionEditContext? = nil
     @Binding var activeTab: EditorInspectorTab
     var onCollapse: (() -> Void)? = nil
 
@@ -54,7 +55,8 @@ struct EditorInspectorView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.65))
 
-            if let subtitle = segmentName ?? (transition != nil ? "转场" : projectName) {
+            if let subtitle = segmentName
+                ?? (transition != nil ? "转场" : (cutContext != nil ? "添加转场" : projectName)) {
                 Text(subtitle)
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.4))
@@ -206,6 +208,8 @@ struct EditorInspectorView: View {
                 EditorInspectorInfoContent(segment: segment, store: store)
             } else if let transition {
                 EditorInspectorTransitionInfoContent(transition: transition)
+            } else if let cutContext {
+                EditorInspectorTransitionCutInfoContent(context: cutContext)
             } else {
                 placeholder("片段信息", "选择片段后显示来源、时长和时间位置。")
             }
@@ -223,6 +227,11 @@ struct EditorInspectorView: View {
             if let transition {
                 EditorInspectorTransitionContent(
                     transition: transition,
+                    store: store
+                )
+            } else if let cutContext {
+                EditorInspectorTransitionDraftContent(
+                    context: cutContext,
                     store: store
                 )
             } else {
@@ -1030,6 +1039,107 @@ private struct EditorInspectorTransitionInfoContent: View {
                     String(transition.trailingSegmentID.uuidString.prefix(8))
                 )
             }
+        }
+    }
+}
+
+private struct EditorInspectorTransitionDraftContent: View {
+    let context: TransitionEditContext
+    @Bindable var store: EditorStore
+
+    @State private var selectedType: EditorTransition.TransitionType = .crossFade
+    @State private var duration: Double = 0.5
+
+    private var maxDuration: Double {
+        let leading = store.timeline
+            .segment(id: context.leadingID)?
+            .targetRange.duration ?? 3
+        let trailing = store.timeline
+            .segment(id: context.trailingID)?
+            .targetRange.duration ?? 3
+        return max(0.2, min(3.0, min(leading, trailing)))
+    }
+
+    private var canAdd: Bool {
+        store.timeline.segment(id: context.leadingID) != nil
+            && store.timeline.segment(id: context.trailingID) != nil
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            InspectorSection("添加转场") {
+                Menu {
+                    ForEach(
+                        EditorTransition.TransitionType.allCases,
+                        id: \.self
+                    ) { type in
+                        Button(transitionTypeTitle(type)) {
+                            selectedType = type
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Text("类型")
+                            .foregroundStyle(.white.opacity(0.5))
+                        Spacer()
+                        Text(transitionTypeTitle(selectedType))
+                            .foregroundStyle(.white.opacity(0.85))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
+                    .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+
+                InspectorSliderRow(
+                    label: "时长",
+                    value: duration,
+                    range: 0.2...maxDuration,
+                    step: 0.1,
+                    format: { String(format: "%.1fs", $0) },
+                    onPreview: { duration = $0 },
+                    onEnd: { duration = $0 }
+                )
+
+                InspectorRow(
+                    "连接",
+                    "\(String(context.leadingID.uuidString.prefix(8))) → \(String(context.trailingID.uuidString.prefix(8)))"
+                )
+            }
+
+            Button {
+                if let transition = store.addTransition(
+                    between: context.leadingID,
+                    and: context.trailingID,
+                    type: selectedType,
+                    duration: duration
+                ) {
+                    store.selection.selectTransition(transition.id)
+                }
+            } label: {
+                Label("添加转场", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!canAdd)
+        }
+    }
+}
+
+private struct EditorInspectorTransitionCutInfoContent: View {
+    let context: TransitionEditContext
+
+    var body: some View {
+        InspectorSection("切点") {
+            InspectorRow("状态", "尚未添加转场")
+            InspectorRow(
+                "前片段",
+                String(context.leadingID.uuidString.prefix(8))
+            )
+            InspectorRow(
+                "后片段",
+                String(context.trailingID.uuidString.prefix(8))
+            )
         }
     }
 }

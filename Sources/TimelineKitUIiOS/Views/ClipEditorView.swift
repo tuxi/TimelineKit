@@ -40,8 +40,6 @@ public struct ClipEditorView: View {
     private let editorAccessory: ((EditorStore) -> AnyView)?
     private let projectName: String
 
-    private var transitionEditContext: TransitionEditContext? { store.selection.editingTransitionContext }
-
     /// 编辑页（由项目页驱动）：接收已打开的资源库与目标项目。
     /// 项目页负责库/项目管理（新建/重命名/删除等）；本页专注编辑当前项目，
     /// 退出时把 timeline 回库（persistActiveProject）。
@@ -287,7 +285,8 @@ public struct ClipEditorView: View {
     }
 
     private var inspectorContext: EditorInspectorContext {
-        if store.selection.selectedTransitionID != nil {
+        if store.selection.selectedTransitionID != nil
+            || store.selection.selectedCutContext != nil {
             return EditorInspectorContext(kind: .transition)
         }
         return EditorInspectorContext.make(
@@ -378,6 +377,7 @@ public struct ClipEditorView: View {
                             selectionCount: store.selection.selectedSegmentIDs.count,
                             projectName: projectName,
                             transitionID: store.selection.selectedTransitionID,
+                            cutContext: store.selection.selectedCutContext,
                             activeTab: $inspectorTab,
                             onCollapse: {
                                 withAnimation(.spring(duration: 0.25)) {
@@ -727,16 +727,6 @@ public struct ClipEditorView: View {
         )
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: Binding(
-            get: { transitionEditContext != nil },
-            set: { if !$0 { store.selection.editingTransitionContext = nil } }
-        )) {
-            if let ctx = transitionEditContext {
-                TransitionEditSheet(context: ctx, store: store)
-                    .presentationDetents([.medium, .large])
-                    .presentationDragIndicator(.visible)
-            }
-        }
-        .sheet(isPresented: Binding(
             get: { store.ttsConfigSheetTargets != nil },
             set: { if !$0 { store.ttsConfigSheetTargets = nil } }
         )) {
@@ -765,6 +755,7 @@ public struct ClipEditorView: View {
                 selectionCount: store.selection.selectedSegmentIDs.count,
                 projectName: projectName,
                 transitionID: store.selection.selectedTransitionID,
+                cutContext: store.selection.selectedCutContext,
                 activeTab: $inspectorTab,
                 onCollapse: { tabbedInspectorSheetRequested = false }
             )
