@@ -22,6 +22,7 @@ public struct ClipEditorView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.editorLayoutMode) private var layoutMode
+    @Environment(\.editorInspectorMode) private var inspectorMode
     @FocusState private var editorHasFocus: Bool
     @State private var store: EditorStore
     @State private var libraryStore = TimelineLibraryStore()
@@ -114,6 +115,8 @@ public struct ClipEditorView: View {
     @State private var isWorkspaceInspectorCollapsed = false
     @State private var isMediaPanelCollapsed = false
     @State private var workspaceTopHeightOverride: CGFloat?
+    @State private var inspectorTab: EditorInspectorTab = .project
+    @State private var showReplacePanel = false
     @State private var workspaceForm: EditorLayoutForm = .phone
     @State private var addMediaItems: [PhotosPickerItem] = []
     @State private var pendingVisualTrackID: UUID?
@@ -217,6 +220,23 @@ public struct ClipEditorView: View {
         store.deleteSegment(id: segmentID)
     }
 
+    private func splitSelectedSegment() {
+        guard let segmentID = store.selection.singleSelectedID else { return }
+        _ = store.splitSegment(
+            id: segmentID,
+            at: store.selection.playheadTime
+        )
+    }
+
+    private func copySelectedSegment() {
+        guard let segmentID = store.selection.singleSelectedID else { return }
+        store.copySegment(id: segmentID)
+    }
+
+    private func pasteSegment() {
+        store.pasteSegment(after: store.selection.singleSelectedID)
+    }
+
     // MARK: - Stacked (phone) layout
 
     private func stackedContent(geo: GeometryProxy, previewHeight: CGFloat) -> some View {
@@ -244,6 +264,38 @@ public struct ClipEditorView: View {
 
     // MARK: - Regular width workspace
 
+    private func shouldUseTabbedInspector(_ decision: EditorLayoutDecision) -> Bool {
+        inspectorMode == .tabbed
+            && decision.form == .wideWorkspace
+            && decision.contentSize.width > decision.contentSize.height
+    }
+
+    private var inspectorContext: EditorInspectorContext {
+        EditorInspectorContext.make(
+            segment: store.selection.singleSelectedID.flatMap {
+                store.timeline.segment(id: $0)
+            },
+            selectionCount: store.selection.selectedSegmentIDs.count
+        )
+    }
+
+    private var mediaPanel: some View {
+        EditorMediaPanel(
+            isCollapsed: $isMediaPanelCollapsed,
+            onPhotos: {
+                pendingVisualTrackID = nil
+                showAddMediaPicker = true
+            },
+            onFiles: {
+                pendingVisualTrackID = nil
+                showFileImporter = true
+            },
+            onDropURLs: { urls in
+                Task { await loadDroppedMediaURLs(urls) }
+            }
+        )
+    }
+
     private func workspaceContent(
         decision: EditorLayoutDecision
     ) -> some View {
@@ -257,31 +309,21 @@ public struct ClipEditorView: View {
             max(workspaceTopHeightOverride ?? decision.previewSize.height, minTop),
             maxTop
         )
+        let usesTabbedInspector = shouldUseTabbedInspector(decision)
 
         return VStack(spacing: 0) {
             HStack(spacing: 0) {
                 if decision.form == .wideWorkspace {
-                    EditorToolRail(
-                        activeCategory: $activeToolCategory,
-                        topInset: decision.topControlInset
-                    )
-                    Divider().background(Color.white.opacity(0.08))
+                    if !usesTabbedInspector {
+                        EditorToolRail(
+                            activeCategory: $activeToolCategory,
+                            topInset: decision.topControlInset
+                        )
+                        Divider().background(Color.white.opacity(0.08))
+                    }
 
                     if decision.contentSize.width >= 1000 {
-                        EditorMediaPanel(
-                            isCollapsed: $isMediaPanelCollapsed,
-                            onPhotos: {
-                                pendingVisualTrackID = nil
-                                showAddMediaPicker = true
-                            },
-                            onFiles: {
-                                pendingVisualTrackID = nil
-                                showFileImporter = true
-                            },
-                            onDropURLs: { urls in
-                                Task { await loadDroppedMediaURLs(urls) }
-                            }
-                        )
+                        mediaPanel
                         Divider().background(Color.white.opacity(0.08))
                     }
                 }
@@ -295,15 +337,35 @@ public struct ClipEditorView: View {
 
                 Divider().background(Color.white.opacity(0.08))
 
-                EditorWorkspaceInspector(
-                    route: toolPanelRoute,
-                    store: store,
-                    isCollapsed: $isWorkspaceInspectorCollapsed,
-                    width: decision.auxiliaryPanelWidth,
-                    topInset: decision.topControlInset,
-                    onDismiss: dismissToolPanel,
-                    onAudioTargetConsumed: { pendingAudioTrackID = nil }
-                )
+                if usesTabbedInspector {
+                    if isWorkspaceInspectorCollapsed {
+                        collapsedInspectorRail(topInset: decision.topControlInset)
+                    } else {
+                        EditorInspectorView(
+                            context: inspectorContext,
+                            store: store,
+                            segmentID: store.selection.singleSelectedID,
+                            selectionCount: store.selection.selectedSegmentIDs.count,
+                            activeTab: $inspectorTab,
+                            onCollapse: {
+                                withAnimation(.spring(duration: 0.25)) {
+                                    isWorkspaceInspectorCollapsed = true
+                                }
+                            }
+                        )
+                        .frame(width: max(decision.auxiliaryPanelWidth, 300))
+                    }
+                } else {
+                    EditorWorkspaceInspector(
+                        route: toolPanelRoute,
+                        store: store,
+                        isCollapsed: $isWorkspaceInspectorCollapsed,
+                        width: decision.auxiliaryPanelWidth,
+                        topInset: decision.topControlInset,
+                        onDismiss: dismissToolPanel,
+                        onAudioTargetConsumed: { pendingAudioTrackID = nil }
+                    )
+                }
             }
             .frame(height: topHeight)
             .background(Color.black)
@@ -323,6 +385,36 @@ public struct ClipEditorView: View {
                 EditorBottomToolbar(activeCategory: $activeToolCategory)
             }
         }
+    }
+
+    private func collapsedInspectorRail(topInset: CGFloat) -> some View {
+        VStack(spacing: 10) {
+            Button {
+                withAnimation(.spring(duration: 0.25)) {
+                    isWorkspaceInspectorCollapsed = false
+                }
+            } label: {
+                Image(systemName: "sidebar.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .hoverEffect(.highlight)
+            .accessibilityLabel("展开检查器")
+
+            Text("检查器")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.white.opacity(0.45))
+                .rotationEffect(.degrees(-90))
+                .fixedSize()
+                .frame(width: 14, height: 56)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 8 + topInset)
+        .frame(width: 44)
+        .background(Color(white: 0.10))
     }
 
     // MARK: - Folded layout
@@ -583,6 +675,18 @@ public struct ClipEditorView: View {
                 onAudioTargetConsumed: { pendingAudioTrackID = nil }
             )
         }
+        // P1: replace is a command, not an inspector property.
+        .sheet(isPresented: $showReplacePanel) {
+            if let segmentID = store.selection.singleSelectedID {
+                SegmentReplacePanel(
+                    segmentID: segmentID,
+                    store: store,
+                    onDismiss: { showReplacePanel = false }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+        }
         // V5 export-config-panel-spec §5.3：规格按钮 → ExportConfigSheet
         .sheet(isPresented: $showExportConfig) {
             ExportConfigSheet(store: store) {
@@ -773,6 +877,47 @@ public struct ClipEditorView: View {
                     }
                 } label: {
                     Label("检查器", systemImage: "slider.horizontal.3")
+                }
+
+                Menu {
+                    Button {
+                        splitSelectedSegment()
+                    } label: {
+                        Label("分割", systemImage: "scissors")
+                    }
+                    .disabled(store.selection.singleSelectedID == nil)
+
+                    Button {
+                        deleteSelectedSegment()
+                    } label: {
+                        Label("删除", systemImage: "trash")
+                    }
+                    .disabled(store.selection.singleSelectedID == nil)
+
+                    Button {
+                        copySelectedSegment()
+                    } label: {
+                        Label("复制", systemImage: "doc.on.doc")
+                    }
+                    .disabled(store.selection.singleSelectedID == nil)
+
+                    Button {
+                        pasteSegment()
+                    } label: {
+                        Label("粘贴", systemImage: "doc.on.clipboard")
+                    }
+                    .disabled(!store.hasClipboardSegment)
+
+                    Divider()
+
+                    Button {
+                        showReplacePanel = true
+                    } label: {
+                        Label("替换", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .disabled(store.selection.singleSelectedID == nil)
+                } label: {
+                    Label("片段", systemImage: "scissors")
                 }
             }
             // Separate trailing items so the system can overflow each action

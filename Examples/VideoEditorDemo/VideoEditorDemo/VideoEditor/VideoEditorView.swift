@@ -19,6 +19,8 @@ struct VideoEditorView: View {
     @State private var openLibrayError: Error?
     @State private var layoutMode: EditorLayoutMode = ProcessInfo.processInfo.arguments
         .contains("-TimelineKitAdaptiveLayout") ? .adaptive : .legacy
+    @State private var inspectorMode: EditorInspectorMode = ProcessInfo.processInfo.arguments
+        .contains("-TimelineKitTabbedInspector") ? .tabbed : .legacy
     @State private var navigationPath: [UUID] = []
 
     var body: some View {
@@ -30,6 +32,13 @@ struct VideoEditorView: View {
                             Picker("布局模式", selection: $layoutMode) {
                                 Text("经典布局").tag(EditorLayoutMode.legacy)
                                 Text("自适应布局").tag(EditorLayoutMode.adaptive)
+                            }
+
+                            Divider()
+
+                            Picker("检查器模式", selection: $inspectorMode) {
+                                Text("旧版工具条").tag(EditorInspectorMode.legacy)
+                                Text("新版检查器").tag(EditorInspectorMode.tabbed)
                             }
                         } label: {
                             Label("布局模式", systemImage: "rectangle.3.group")
@@ -61,6 +70,7 @@ struct VideoEditorView: View {
 
         }
         .environment(\.editorLayoutMode, layoutMode)
+        .environment(\.editorInspectorMode, inspectorMode)
     }
 
     /// Debug-only entry for device automation: seeds a project and opens the
