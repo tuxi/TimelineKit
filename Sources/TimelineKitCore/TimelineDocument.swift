@@ -787,6 +787,7 @@ public struct SelectionState: Sendable {
     public var playheadTime: Double = 0
     public var editingSegmentID: UUID?
     public var editingTransitionContext: TransitionEditContext?
+    public var selectedTransitionID: UUID?
 
     public var hasSingleSelection: Bool {
         selectedSegmentIDs.count == 1
@@ -798,10 +799,20 @@ public struct SelectionState: Sendable {
     public mutating func selectOnly(_ id: UUID) {
         selectedSegmentIDs = [id]
         editingSegmentID = id
+        selectedTransitionID = nil
     }
+
+    public mutating func selectTransition(_ id: UUID) {
+        selectedSegmentIDs.removeAll()
+        editingSegmentID = nil
+        editingTransitionContext = nil
+        selectedTransitionID = id
+    }
+
     public mutating func deselect() {
         selectedSegmentIDs.removeAll()
         editingSegmentID = nil
+        selectedTransitionID = nil
     }
 }
 

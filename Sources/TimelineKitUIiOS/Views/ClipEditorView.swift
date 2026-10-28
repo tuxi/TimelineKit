@@ -287,7 +287,10 @@ public struct ClipEditorView: View {
     }
 
     private var inspectorContext: EditorInspectorContext {
-        EditorInspectorContext.make(
+        if store.selection.selectedTransitionID != nil {
+            return EditorInspectorContext(kind: .transition)
+        }
+        return EditorInspectorContext.make(
             segment: store.selection.singleSelectedID.flatMap {
                 store.timeline.segment(id: $0)
             },
@@ -374,6 +377,7 @@ public struct ClipEditorView: View {
                             segmentID: store.selection.singleSelectedID,
                             selectionCount: store.selection.selectedSegmentIDs.count,
                             projectName: projectName,
+                            transitionID: store.selection.selectedTransitionID,
                             activeTab: $inspectorTab,
                             onCollapse: {
                                 withAnimation(.spring(duration: 0.25)) {
@@ -760,6 +764,7 @@ public struct ClipEditorView: View {
                 segmentID: store.selection.singleSelectedID,
                 selectionCount: store.selection.selectedSegmentIDs.count,
                 projectName: projectName,
+                transitionID: store.selection.selectedTransitionID,
                 activeTab: $inspectorTab,
                 onCollapse: { tabbedInspectorSheetRequested = false }
             )

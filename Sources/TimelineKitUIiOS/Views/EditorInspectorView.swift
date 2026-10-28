@@ -16,11 +16,18 @@ struct EditorInspectorView: View {
     let segmentID: UUID?
     var selectionCount: Int = 1
     var projectName: String? = nil
+    var transitionID: UUID? = nil
     @Binding var activeTab: EditorInspectorTab
     var onCollapse: (() -> Void)? = nil
 
     private var segment: EditorSegment? {
         segmentID.flatMap { store.timeline.segment(id: $0) }
+    }
+
+    private var transition: EditorTransition? {
+        transitionID.flatMap { id in
+            store.timeline.transitions.first { $0.id == id }
+        }
     }
 
     var body: some View {
@@ -47,7 +54,7 @@ struct EditorInspectorView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.65))
 
-            if let subtitle = segmentName ?? projectName {
+            if let subtitle = segmentName ?? (transition != nil ? "转场" : projectName) {
                 Text(subtitle)
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.4))
@@ -197,6 +204,8 @@ struct EditorInspectorView: View {
         case .info:
             if let segment {
                 EditorInspectorInfoContent(segment: segment, store: store)
+            } else if let transition {
+                EditorInspectorTransitionInfoContent(transition: transition)
             } else {
                 placeholder("片段信息", "选择片段后显示来源、时长和时间位置。")
             }
@@ -210,10 +219,20 @@ struct EditorInspectorView: View {
         case .multiSelection:
             EditorInspectorMultiSelectionContent(count: selectionCount)
 
-        case .effects, .transition:
+        case .transition:
+            if let transition {
+                EditorInspectorTransitionContent(
+                    transition: transition,
+                    store: store
+                )
+            } else {
+                placeholder("转场", "在时间线切点选择一个转场。")
+            }
+
+        case .effects:
             placeholder(
                 activeTab.title,
-                "该属性页将在 P1 接入。"
+                "该属性页将在后续接入。"
             )
         }
     }
@@ -913,6 +932,123 @@ private struct EditorInspectorInfoContent: View {
 
     private var contentKind: EditorInspectorContentKind {
         EditorInspectorContentKind(segment: segment)
+    }
+}
+
+// MARK: - Transition
+
+private struct EditorInspectorTransitionContent: View {
+    let transition: EditorTransition
+    @Bindable var store: EditorStore
+
+    private var maxDuration: Double {
+        let leading = store.timeline
+            .segment(id: transition.leadingSegmentID)?
+            .targetRange.duration ?? 3
+        let trailing = store.timeline
+            .segment(id: transition.trailingSegmentID)?
+            .targetRange.duration ?? 3
+        return max(0.2, min(3.0, min(leading, trailing)))
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            InspectorSection("转场") {
+                Menu {
+                    ForEach(
+                        EditorTransition.TransitionType.allCases,
+                        id: \.self
+                    ) { type in
+                        Button(transitionTypeTitle(type)) {
+                            store.updateTransitionType(
+                                id: transition.id,
+                                type: type
+                            )
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Text("类型")
+                            .foregroundStyle(.white.opacity(0.5))
+                        Spacer()
+                        Text(transitionTypeTitle(transition.type))
+                            .foregroundStyle(.white.opacity(0.85))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
+                    .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+
+                InspectorSliderRow(
+                    label: "时长",
+                    value: transition.duration,
+                    range: 0.2...maxDuration,
+                    step: 0.1,
+                    format: { String(format: "%.1fs", $0) },
+                    onPreview: { _ in },
+                    onEnd: {
+                        store.updateTransitionDuration(
+                            id: transition.id,
+                            duration: $0
+                        )
+                    }
+                )
+
+                InspectorRow("缓动", transition.easing.rawValue)
+            }
+
+            Button("删除转场", role: .destructive) {
+                store.removeTransition(id: transition.id)
+                store.selection.deselect()
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+}
+
+private struct EditorInspectorTransitionInfoContent: View {
+    let transition: EditorTransition
+
+    var body: some View {
+        VStack(spacing: 10) {
+            InspectorSection("转场信息") {
+                InspectorRow("类型", transitionTypeTitle(transition.type))
+                InspectorRow("时长", String(format: "%.2fs", transition.duration))
+                InspectorRow("缓动", transition.easing.rawValue)
+                InspectorRow("预设", transition.presetID ?? "默认")
+            }
+
+            InspectorSection("连接") {
+                InspectorRow(
+                    "前片段",
+                    String(transition.leadingSegmentID.uuidString.prefix(8))
+                )
+                InspectorRow(
+                    "后片段",
+                    String(transition.trailingSegmentID.uuidString.prefix(8))
+                )
+            }
+        }
+    }
+}
+
+private func transitionTypeTitle(
+    _ type: EditorTransition.TransitionType
+) -> String {
+    switch type {
+    case .fade, .crossFade:       return "叠化"
+    case .fadeThroughBlack:       return "黑场过渡"
+    case .slideLeft,
+         .slideRight,
+         .slideUp,
+         .slideDown:              return "滑动"
+    case .pushLeft, .pushRight:   return "推动"
+    case .zoom, .zoomIn:          return "缩放"
+    case .dissolve:               return "溶解"
+    case .wipe:                   return "擦除"
+    case .blurFade:               return "模糊淡化"
     }
 }
 

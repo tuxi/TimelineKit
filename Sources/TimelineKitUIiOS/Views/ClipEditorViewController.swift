@@ -364,11 +364,20 @@ public final class ClipEditorViewController: UIViewController {
             self?.scrollView.panGestureRecognizer.isEnabled = !lock
         }
 
-        // Transition badge tap → open transition sheet via SelectionState
+        // Existing transitions select into the inspector; bare cuts keep the
+        // add-transition sheet flow.
         canvas.onTransitionTap = { [weak self] leadingID, trailingID, existing in
-            self?.store.selection.editingTransitionContext =
-                TransitionEditContext(leadingID: leadingID, trailingID: trailingID,
-                                     existingTransition: existing)
+            if let existing {
+                self?.store.selection.selectTransition(existing.id)
+            } else {
+                self?.store.selection.deselect()
+                self?.store.selection.editingTransitionContext =
+                    TransitionEditContext(
+                        leadingID: leadingID,
+                        trailingID: trailingID,
+                        existingTransition: nil
+                    )
+            }
         }
 
         // Empty user-created track tap → SwiftUI decides which picker/panel to present.
@@ -429,6 +438,7 @@ public final class ClipEditorViewController: UIViewController {
         if let segID = canvas.segmentID(at: point) {
             store.selection.selectedSegmentIDs = [segID]
             store.selection.editingSegmentID   = nil
+            store.selection.selectedTransitionID = nil
         } else {
             store.selection.deselect()
         }
