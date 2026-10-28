@@ -31,6 +31,22 @@ enum EditorToolPanelRoute {
         if case .textEdit = self { return 0.45 }
         return nil
     }
+
+    private static let compactActionHeight: CGFloat = 72
+    private static let compactAudioDefaultHeight: CGFloat = 88
+
+    /// One-row action bars have a fixed height. Compact landscape uses this to
+    /// avoid stretching them over the timeline.
+    var compactLandscapeHeight: CGFloat? {
+        switch self {
+        case .textActions, .clipActions, .audioActions, .category:
+            return Self.compactActionHeight
+        case .audioDefault:
+            return Self.compactAudioDefaultHeight
+        case .textEdit, .audioEdit, .adjust, .animation, .empty:
+            return nil
+        }
+    }
 }
 
 /// Shared tool panel content used by the bottom overlay and the inspector.
