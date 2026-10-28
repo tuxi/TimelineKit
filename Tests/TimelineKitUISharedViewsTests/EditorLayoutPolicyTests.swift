@@ -20,6 +20,36 @@ final class EditorLayoutPolicyTests: XCTestCase {
         XCTAssertEqual(decision.timelineDensity, .regular)
     }
 
+    func testCompactLandscapeUsesSideBySideLayout() {
+        let decision = EditorLayoutPolicy.decide(
+            input(
+                container: CGSize(width: 874, height: 402),
+                horizontal: .compact,
+                vertical: .compact
+            )
+        )
+
+        XCTAssertEqual(decision.form, .phoneLandscape)
+        XCTAssertEqual(decision.previewSize.width, 489.44, accuracy: 0.01)
+        XCTAssertEqual(decision.timelineSize.width, 384.56, accuracy: 0.01)
+        XCTAssertEqual(decision.previewSize.height, 402, accuracy: 0.01)
+        XCTAssertEqual(decision.timelineSize.height, 402, accuracy: 0.01)
+        XCTAssertFalse(decision.showsAuxiliaryPanel)
+        XCTAssertFalse(decision.showsInspector)
+    }
+
+    func testCompactLandscapeFallsBackBelowWidthThreshold() {
+        let decision = EditorLayoutPolicy.decide(
+            input(
+                container: CGSize(width: 600, height: 375),
+                horizontal: .compact,
+                vertical: .compact
+            )
+        )
+
+        XCTAssertEqual(decision.form, .phone)
+    }
+
     func testRegularMediumWorkspaceShowsOneAuxiliaryPanel() {
         let decision = EditorLayoutPolicy.decide(
             input(container: CGSize(width: 834, height: 1112), horizontal: .regular)

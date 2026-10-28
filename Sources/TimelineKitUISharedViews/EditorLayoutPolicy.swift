@@ -144,6 +144,8 @@ public struct EditorLayoutInput: Equatable, Sendable {
 public enum EditorLayoutForm: String, Equatable, Sendable {
     /// Compact or short window: focused phone editing.
     case phone
+    /// Compact-height landscape phone: preview and timeline side by side.
+    case phoneLandscape
     /// Regular width with one auxiliary panel.
     case mediumWorkspace
     /// Regular width with material and inspector panels.
@@ -250,10 +252,77 @@ public enum EditorLayoutPolicy {
             )
         }
 
+        if isCompactLandscape(input, contentRect: contentRect) {
+            return landscapeDecision(
+                input: input,
+                contentRect: contentRect,
+                activeOcclusions: activeOcclusions,
+                topControlInset: topControlInset
+            )
+        }
+
         return stackedDecision(
             input: input,
             contentRect: contentRect,
             activeOcclusions: activeOcclusions,
+            topControlInset: topControlInset
+        )
+    }
+
+    // MARK: - Compact landscape phone
+
+    private static func isCompactLandscape(
+        _ input: EditorLayoutInput,
+        contentRect: CGRect
+    ) -> Bool {
+        input.horizontalSizeClass == .compact
+            && input.verticalSizeClass == .compact
+            && contentRect.width > contentRect.height
+            && contentRect.width >= 640
+    }
+
+    private static func landscapeDecision(
+        input: EditorLayoutInput,
+        contentRect: CGRect,
+        activeOcclusions: [CGRect],
+        topControlInset: CGFloat
+    ) -> EditorLayoutDecision {
+        let minColumnWidth: CGFloat = 320
+        let proposedPreview = contentRect.width * 0.56
+        let maxPreview = max(
+            minColumnWidth,
+            contentRect.width - minColumnWidth
+        )
+        let previewWidth = min(
+            max(minColumnWidth, proposedPreview),
+            maxPreview
+        )
+        let timelineWidth = max(0, contentRect.width - previewWidth)
+
+        return EditorLayoutDecision(
+            form: .phoneLandscape,
+            contentSize: contentRect.size,
+            previewSize: CGSize(
+                width: previewWidth,
+                height: contentRect.height
+            ),
+            timelineSize: CGSize(
+                width: timelineWidth,
+                height: contentRect.height
+            ),
+            timelineDensity: density(
+                for: CGSize(
+                    width: timelineWidth,
+                    height: contentRect.height
+                ),
+                metrics: input.metrics
+            ),
+            foldAxis: .none,
+            activeFoldFrame: nil,
+            activeOcclusionFrames: activeOcclusions,
+            showsAuxiliaryPanel: false,
+            showsInspector: false,
+            auxiliaryPanelWidth: 0,
             topControlInset: topControlInset
         )
     }
@@ -300,7 +369,7 @@ public enum EditorLayoutPolicy {
         switch form {
         case .mediumWorkspace, .wideWorkspace:
             auxiliaryPanelWidth = min(340, max(220, contentRect.width * 0.34))
-        case .phone, .foldedWorkspace:
+        case .phone, .phoneLandscape, .foldedWorkspace:
             auxiliaryPanelWidth = 0
         }
 

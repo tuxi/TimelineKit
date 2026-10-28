@@ -143,10 +143,13 @@ public struct ClipEditorView: View {
             let form = decision?.form ?? .phone
             let usesWorkspace = form == .mediumWorkspace || form == .wideWorkspace
             let usesFolded = form == .foldedWorkspace
+            let usesPhoneLandscape = form == .phoneLandscape
 
             ZStack(alignment: .bottom) {
                 if let decision, usesFolded {
                     foldedContent(decision: decision)
+                } else if let decision, usesPhoneLandscape {
+                    phoneLandscapeContent(decision: decision)
                 } else if let decision, usesWorkspace {
                     workspaceContent(decision: decision)
                 } else {
@@ -459,6 +462,34 @@ public struct ClipEditorView: View {
         .background(Color(white: 0.10))
     }
 
+    // MARK: - Compact landscape phone
+
+    private func phoneLandscapeContent(
+        decision: EditorLayoutDecision
+    ) -> some View {
+        HStack(spacing: 0) {
+            previewPane
+                .frame(
+                    width: max(decision.previewSize.width, 1),
+                    alignment: .top
+                )
+                .frame(maxHeight: .infinity, alignment: .top)
+
+            Divider().background(Color.white.opacity(0.08))
+
+            VStack(spacing: 0) {
+                if decision.topControlInset > 0 {
+                    Color.clear
+                        .frame(height: decision.topControlInset)
+                }
+
+                editorControlBarView(height: 44)
+                trackPaneView(minHeight: 96)
+            }
+            .frame(width: max(decision.timelineSize.width, 1))
+        }
+    }
+
     // MARK: - Folded layout
 
     @ViewBuilder
@@ -602,16 +633,30 @@ public struct ClipEditorView: View {
     }
 
     private var editorControlBar: some View {
+        editorControlBarView()
+    }
+
+    private func editorControlBarView(
+        height: CGFloat? = nil
+    ) -> some View {
         EditorControlBar(
             store: store,
             onRequestFullScreenPreview: { showFullScreenPreview = true }
         )
-        .frame(height: controlBarHeight)
+        .frame(height: height ?? controlBarHeight)
         .padding(.horizontal, 12)
     }
 
     private var trackPane: some View {
-        ZStack(alignment: .topTrailing) {
+        trackPaneView()
+    }
+
+    private func trackPaneView(
+        minHeight: CGFloat? = nil
+    ) -> some View {
+        let resolvedMinHeight = minHeight ?? trackMinHeight
+
+        return ZStack(alignment: .topTrailing) {
             TrackEditorRepresentable(
                 store: store,
                 viewportSession: trackViewportSession,
@@ -619,7 +664,7 @@ public struct ClipEditorView: View {
                 refreshToken: trackRefreshToken,
                 onEmptyTrackAdd: handleEmptyTrackAdd
             )
-            .frame(minHeight: trackMinHeight, maxHeight: .infinity)
+            .frame(minHeight: resolvedMinHeight, maxHeight: .infinity)
 
             // Fixed "+" button aligned with the main track row (below ruler).
             addSegmentButton
@@ -749,6 +794,30 @@ public struct ClipEditorView: View {
                 store: store,
                 onAudioTargetConsumed: { pendingAudioTrackID = nil }
             )
+        }
+        // Compact landscape uses the top tools menu and a sheet instead of the
+        // bottom toolbar/overlay.
+        .sheet(isPresented: Binding(
+            get: {
+                workspaceForm == .phoneLandscape
+                    && activeToolCategory != nil
+            },
+            set: {
+                if !$0 {
+                    activeToolCategory = nil
+                }
+            }
+        )) {
+            if activeToolCategory != nil {
+                EditorToolPanelContent(
+                    route: toolPanelRoute,
+                    store: store,
+                    onDismiss: { activeToolCategory = nil },
+                    onAudioTargetConsumed: { pendingAudioTrackID = nil }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
         }
         // P2: narrow regular widths open the tabbed inspector as a sheet.
         .sheet(isPresented: $tabbedInspectorSheetRequested) {
@@ -961,20 +1030,24 @@ public struct ClipEditorView: View {
                 .disabled(!store.canRedo)
                 .keyboardShortcut("z", modifiers: [.command, .shift])
 
-                Button {
-                    if inspectorMode == .tabbed && workspaceForm == .foldedWorkspace {
-                        tabbedInspectorSheetRequested = true
-                    } else if workspaceForm == .mediumWorkspace || workspaceForm == .wideWorkspace {
-                        if isTabbedInspectorSheetMode {
+                if workspaceForm == .phoneLandscape {
+                    toolsMenu
+                } else {
+                    Button {
+                        if inspectorMode == .tabbed && workspaceForm == .foldedWorkspace {
                             tabbedInspectorSheetRequested = true
+                        } else if workspaceForm == .mediumWorkspace || workspaceForm == .wideWorkspace {
+                            if isTabbedInspectorSheetMode {
+                                tabbedInspectorSheetRequested = true
+                            } else {
+                                isWorkspaceInspectorCollapsed.toggle()
+                            }
                         } else {
-                            isWorkspaceInspectorCollapsed.toggle()
+                            showInspector = true
                         }
-                    } else {
-                        showInspector = true
+                    } label: {
+                        Label("检查器", systemImage: "slider.horizontal.3")
                     }
-                } label: {
-                    Label("检查器", systemImage: "slider.horizontal.3")
                 }
 
                 Menu {
@@ -1032,6 +1105,21 @@ public struct ClipEditorView: View {
     }
 
     // MARK: - Toolbar Items
+
+    private var toolsMenu: some View {
+        Menu {
+            ForEach(EditorToolCategory.allCases.filter(\.isEnabled)) { category in
+                Button {
+                    activeToolCategory = category
+                } label: {
+                    Label(category.rawValue, systemImage: category.icon)
+                }
+            }
+        } label: {
+            Label("工具", systemImage: "hammer")
+        }
+        .accessibilityLabel("工具")
+    }
 
     private var addSegmentButton: some View {
         Button {
