@@ -596,7 +596,15 @@ public final class TimelineDocument: Identifiable {
         timeline.updateSegment(id: segmentID) { $0.adjustment = adjustment }; compositionVersion += 1
     }
 
-    public func setAdjustment(segmentID: UUID, adjustment: SegmentAdjustment) {
+    /// `undoBase` is the adjustment captured when a slider drag began.
+    public func setAdjustment(
+        segmentID: UUID,
+        adjustment: SegmentAdjustment,
+        undoBase: SegmentAdjustment? = nil
+    ) {
+        if let undoBase {
+            timeline.updateSegment(id: segmentID) { $0.adjustment = undoBase }
+        }
         mutate("调色") { tl in tl.updateSegment(id: segmentID) { $0.adjustment = adjustment } }
     }
 
@@ -669,7 +677,19 @@ public final class TimelineDocument: Identifiable {
 
     public func muteTrack(id: UUID, isMuted: Bool) { mutate(isMuted ? "静音轨道" : "取消静音") { tl in tl.updateTrack(id: id) { $0.isMuted = isMuted } } }
 
-    public func setAudioVolume(segmentID: UUID, volume: Double) {
+    /// `undoBase` is the volume captured when a slider drag began.
+    public func setAudioVolume(
+        segmentID: UUID,
+        volume: Double,
+        undoBase: Double? = nil
+    ) {
+        if let undoBase {
+            timeline.updateSegment(id: segmentID) { seg in
+                guard case .audio(var c) = seg.content else { return }
+                c.volume = max(0, min(undoBase, 2.0))
+                seg.content = .audio(c)
+            }
+        }
         mutate("调整音量") { tl in tl.updateSegment(id: segmentID) { seg in
             guard case .audio(var c) = seg.content else { return }; c.volume = max(0, min(volume, 2.0)); seg.content = .audio(c)
         } }

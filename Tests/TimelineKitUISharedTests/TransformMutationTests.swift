@@ -54,4 +54,77 @@ final class TransformMutationTests: XCTestCase {
         let restored = store.timeline.segment(id: segment.id)?.transform
         XCTAssertEqual(restored, .identity)
     }
+
+    func testAdjustmentUndoBaseRestoresPreDragState() {
+        let (store, segmentID) = makeVideoStore()
+
+        var adjustment = SegmentAdjustment.identity
+        adjustment.brightness = 0.4
+        adjustment.saturation = 1.2
+
+        store.previewAdjustment(segmentID: segmentID, adjustment: adjustment)
+        store.setAdjustment(
+            segmentID: segmentID,
+            adjustment: adjustment,
+            undoBase: .identity
+        )
+        store.undo()
+
+        XCTAssertEqual(
+            store.timeline.segment(id: segmentID)?.adjustment,
+            .identity
+        )
+    }
+
+    func testAudioVolumeUndoBaseRestoresPreDragState() {
+        let audio = EditorSegment(
+            materialID: UUID(),
+            targetRange: TimeRange(start: 0, duration: 3),
+            content: .audio(.init(volume: 1.0))
+        )
+        var timeline = EditorTimeline(
+            canvas: EditorCanvas(width: 1920, height: 1080)
+        )
+        timeline.tracks = [
+            EditorTrack(
+                kind: .audio,
+                segments: [audio],
+                isMainTrack: false
+            )
+        ]
+        let store = EditorStore(timeline: timeline)
+
+        store.previewAudioVolume(segmentID: audio.id, volume: 0.4)
+        store.setAudioVolume(
+            segmentID: audio.id,
+            volume: 0.4,
+            undoBase: 1.0
+        )
+        store.undo()
+
+        guard case .audio(let content) = store.timeline
+            .segment(id: audio.id)?.content else {
+            return XCTFail("audio segment missing")
+        }
+        XCTAssertEqual(content.volume, 1.0, accuracy: 0.001)
+    }
+
+    private func makeVideoStore() -> (EditorStore, UUID) {
+        let segment = EditorSegment(
+            materialID: UUID(),
+            targetRange: TimeRange(start: 0, duration: 5),
+            content: .video(.init())
+        )
+        var timeline = EditorTimeline(
+            canvas: EditorCanvas(width: 1920, height: 1080)
+        )
+        timeline.tracks = [
+            EditorTrack(
+                kind: .video,
+                segments: [segment],
+                isMainTrack: true
+            )
+        ]
+        return (EditorStore(timeline: timeline), segment.id)
+    }
 }

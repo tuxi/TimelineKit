@@ -451,6 +451,8 @@ private struct EditorInspectorAudioContent: View {
     let segment: EditorSegment
     @Bindable var store: EditorStore
 
+    @State private var volumeEditBase: Double?
+
     private var maxFade: Double {
         max(0.01, min(2.0, segment.targetRange.duration / 2))
     }
@@ -466,6 +468,9 @@ private struct EditorInspectorAudioContent: View {
                         step: 0.05,
                         format: { String(format: "%.0f%%", $0 * 100) },
                         onPreview: {
+                            if volumeEditBase == nil {
+                                volumeEditBase = content.volume
+                            }
                             store.previewAudioVolume(
                                 segmentID: segment.id,
                                 volume: $0
@@ -474,8 +479,10 @@ private struct EditorInspectorAudioContent: View {
                         onEnd: {
                             store.setAudioVolume(
                                 segmentID: segment.id,
-                                volume: $0
+                                volume: $0,
+                                undoBase: volumeEditBase
                             )
+                            volumeEditBase = nil
                         }
                     )
 
@@ -538,12 +545,7 @@ private struct EditorInspectorAudioContent: View {
                         range: EditorStore.audioSpeedRange,
                         step: 0.1,
                         format: { String(format: "%.1fx", $0) },
-                        onPreview: {
-                            store.previewAudioSpeed(
-                                segmentID: segment.id,
-                                speed: $0
-                            )
-                        },
+                        onPreview: { _ in },
                         onEnd: {
                             store.setAudioSpeed(
                                 segmentID: segment.id,
@@ -594,6 +596,8 @@ private struct EditorInspectorVideoAudioContent: View {
 private struct EditorInspectorColorContent: View {
     let segment: EditorSegment
     @Bindable var store: EditorStore
+
+    @State private var adjustmentEditBase: SegmentAdjustment?
 
     private var adjustment: SegmentAdjustment {
         segment.adjustment
@@ -710,6 +714,9 @@ private struct EditorInspectorColorContent: View {
             step: step,
             format: format,
             onPreview: {
+                if adjustmentEditBase == nil {
+                    adjustmentEditBase = adjustment
+                }
                 store.previewAdjustment(
                     segmentID: segment.id,
                     adjustment: make($0)
@@ -718,8 +725,10 @@ private struct EditorInspectorColorContent: View {
             onEnd: {
                 store.setAdjustment(
                     segmentID: segment.id,
-                    adjustment: make($0)
+                    adjustment: make($0),
+                    undoBase: adjustmentEditBase
                 )
+                adjustmentEditBase = nil
             }
         )
     }

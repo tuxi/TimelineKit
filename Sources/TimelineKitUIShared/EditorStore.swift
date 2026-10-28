@@ -281,7 +281,17 @@ public final class EditorStore: @MainActor Identifiable {
     // MARK: - Adjustments / Animation / Audio
 
     public func previewAdjustment(segmentID: UUID, adjustment: SegmentAdjustment) { document.previewAdjustment(segmentID: segmentID, adjustment: adjustment) }
-    public func setAdjustment(segmentID: UUID, adjustment: SegmentAdjustment) { document.setAdjustment(segmentID: segmentID, adjustment: adjustment) }
+    public func setAdjustment(
+        segmentID: UUID,
+        adjustment: SegmentAdjustment,
+        undoBase: SegmentAdjustment? = nil
+    ) {
+        document.setAdjustment(
+            segmentID: segmentID,
+            adjustment: adjustment,
+            undoBase: undoBase
+        )
+    }
     public func previewTransform(segmentID: UUID, transform: SegmentTransform) { document.previewTransform(segmentID: segmentID, transform: transform) }
     public func setTransform(
         segmentID: UUID,
@@ -307,8 +317,16 @@ public final class EditorStore: @MainActor Identifiable {
         coordinator?.applyAudioMixOnly(timeline: timeline)
 #endif
     }
-    public func setAudioVolume(segmentID: UUID, volume: Double) {
-        document.setAudioVolume(segmentID: segmentID, volume: volume)
+    public func setAudioVolume(
+        segmentID: UUID,
+        volume: Double,
+        undoBase: Double? = nil
+    ) {
+        document.setAudioVolume(
+            segmentID: segmentID,
+            volume: volume,
+            undoBase: undoBase
+        )
 #if canImport(UIKit)
         coordinator?.applyAudioMixOnly(timeline: timeline)
 #endif
