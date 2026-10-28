@@ -516,6 +516,35 @@ public struct ClipEditorView: View {
         )
     }
 
+    private var usesTabbedFoldInspector: Bool {
+        inspectorMode == .tabbed
+    }
+
+    private var foldedInspectorAccessory: some View {
+        HStack(spacing: 8) {
+            Spacer(minLength: 0)
+
+            Button {
+                tabbedInspectorSheetRequested = true
+            } label: {
+                Label("检查器", systemImage: "slider.horizontal.3")
+                    .font(.system(size: 11, weight: .medium))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Color.white.opacity(0.1),
+                        in: Capsule()
+                    )
+            }
+            .buttonStyle(.plain)
+            .hoverEffect(.highlight)
+            .accessibilityLabel("打开检查器")
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 36)
+        .background(Color(white: 0.10))
+    }
+
     private func verticalTimelineColumn(decision: EditorLayoutDecision) -> some View {
         VStack(spacing: 0) {
             if decision.topControlInset > 0 {
@@ -523,17 +552,31 @@ public struct ClipEditorView: View {
                     .frame(height: decision.topControlInset)
             }
 
+            if usesTabbedFoldInspector {
+                foldedInspectorAccessory
+            }
+
             editorControlBar
             trackPane
-            EditorBottomToolbar(activeCategory: $activeToolCategory)
+
+            if !usesTabbedFoldInspector {
+                EditorBottomToolbar(activeCategory: $activeToolCategory)
+            }
         }
     }
 
     private var horizontalTimelineColumn: some View {
         VStack(spacing: 0) {
+            if usesTabbedFoldInspector {
+                foldedInspectorAccessory
+            }
+
             editorControlBar
             trackPane
-            EditorBottomToolbar(activeCategory: $activeToolCategory)
+
+            if !usesTabbedFoldInspector {
+                EditorBottomToolbar(activeCategory: $activeToolCategory)
+            }
         }
     }
 
@@ -917,7 +960,9 @@ public struct ClipEditorView: View {
                 .keyboardShortcut("z", modifiers: [.command, .shift])
 
                 Button {
-                    if workspaceForm == .mediumWorkspace || workspaceForm == .wideWorkspace {
+                    if inspectorMode == .tabbed && workspaceForm == .foldedWorkspace {
+                        tabbedInspectorSheetRequested = true
+                    } else if workspaceForm == .mediumWorkspace || workspaceForm == .wideWorkspace {
                         if isTabbedInspectorSheetMode {
                             tabbedInspectorSheetRequested = true
                         } else {
