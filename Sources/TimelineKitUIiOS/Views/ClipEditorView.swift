@@ -117,6 +117,8 @@ public struct ClipEditorView: View {
     @State private var workspaceTopHeightOverride: CGFloat?
     @State private var inspectorTab: EditorInspectorTab = .project
     @State private var showReplacePanel = false
+    @State private var isTabbedInspectorSheetMode = false
+    @State private var tabbedInspectorSheetRequested = false
     @State private var workspaceForm: EditorLayoutForm = .phone
     @State private var addMediaItems: [PhotosPickerItem] = []
     @State private var pendingVisualTrackID: UUID?
@@ -168,6 +170,20 @@ public struct ClipEditorView: View {
                 }
                 workspaceTopHeightOverride = nil
                 workspaceForm = resolved
+            }
+            .onChange(of: decision?.contentSize, initial: true) { _, newSize in
+                let size = newSize ?? geo.size
+                let resolved = decision?.form ?? .phone
+                isTabbedInspectorSheetMode = inspectorMode == .tabbed
+                    && (resolved == .mediumWorkspace || resolved == .wideWorkspace)
+                    && size.width < 680
+            }
+            .onChange(of: inspectorMode) { _, newMode in
+                let resolved = decision?.form ?? workspaceForm
+                let size = decision?.contentSize ?? geo.size
+                isTabbedInspectorSheetMode = newMode == .tabbed
+                    && (resolved == .mediumWorkspace || resolved == .wideWorkspace)
+                    && size.width < 680
             }
             .overlay {
                 #if DEBUG
@@ -266,8 +282,8 @@ public struct ClipEditorView: View {
 
     private func shouldUseTabbedInspector(_ decision: EditorLayoutDecision) -> Bool {
         inspectorMode == .tabbed
-            && decision.form == .wideWorkspace
-            && decision.contentSize.width > decision.contentSize.height
+            && (decision.form == .mediumWorkspace
+                || decision.form == .wideWorkspace)
     }
 
     private var inspectorContext: EditorInspectorContext {
@@ -299,8 +315,11 @@ public struct ClipEditorView: View {
     private func workspaceContent(
         decision: EditorLayoutDecision
     ) -> some View {
+        let usesTabbedInspector = shouldUseTabbedInspector(decision)
         let bottomChrome = controlBarHeight
-            + (decision.form == .mediumWorkspace ? EditorBottomToolbar.height : 0)
+            + ((decision.form == .mediumWorkspace && !usesTabbedInspector)
+                ? EditorBottomToolbar.height
+                : 0)
             + trackMinHeight
             + 12
         let minTop: CGFloat = 240
@@ -309,7 +328,6 @@ public struct ClipEditorView: View {
             max(workspaceTopHeightOverride ?? decision.previewSize.height, minTop),
             maxTop
         )
-        let usesTabbedInspector = shouldUseTabbedInspector(decision)
 
         return VStack(spacing: 0) {
             HStack(spacing: 0) {
@@ -322,7 +340,8 @@ public struct ClipEditorView: View {
                         Divider().background(Color.white.opacity(0.08))
                     }
 
-                    if decision.contentSize.width >= 1000 {
+                    let isLandscape = decision.contentSize.width > decision.contentSize.height
+                    if isLandscape && decision.contentSize.width >= 1000 {
                         mediaPanel
                         Divider().background(Color.white.opacity(0.08))
                     }
@@ -338,8 +357,16 @@ public struct ClipEditorView: View {
                 Divider().background(Color.white.opacity(0.08))
 
                 if usesTabbedInspector {
-                    if isWorkspaceInspectorCollapsed {
-                        collapsedInspectorRail(topInset: decision.topControlInset)
+                    if isTabbedInspectorSheetMode {
+                        collapsedInspectorRail(topInset: decision.topControlInset) {
+                            tabbedInspectorSheetRequested = true
+                        }
+                    } else if isWorkspaceInspectorCollapsed {
+                        collapsedInspectorRail(topInset: decision.topControlInset) {
+                            withAnimation(.spring(duration: 0.25)) {
+                                isWorkspaceInspectorCollapsed = false
+                            }
+                        }
                     } else {
                         EditorInspectorView(
                             context: inspectorContext,
@@ -353,7 +380,7 @@ public struct ClipEditorView: View {
                                 }
                             }
                         )
-                        .frame(width: max(decision.auxiliaryPanelWidth, 300))
+                        .frame(width: tabbedInspectorWidth(for: decision))
                     }
                 } else {
                     EditorWorkspaceInspector(
@@ -381,19 +408,25 @@ public struct ClipEditorView: View {
             editorControlBar
             trackPane
 
-            if decision.form == .mediumWorkspace {
+            if decision.form == .mediumWorkspace && !usesTabbedInspector {
                 EditorBottomToolbar(activeCategory: $activeToolCategory)
             }
         }
     }
 
-    private func collapsedInspectorRail(topInset: CGFloat) -> some View {
+    private func tabbedInspectorWidth(for decision: EditorLayoutDecision) -> CGFloat {
+        min(
+            max(decision.auxiliaryPanelWidth, 280),
+            max(220, decision.contentSize.width * 0.42)
+        )
+    }
+
+    private func collapsedInspectorRail(
+        topInset: CGFloat,
+        action: @escaping () -> Void
+    ) -> some View {
         VStack(spacing: 10) {
-            Button {
-                withAnimation(.spring(duration: 0.25)) {
-                    isWorkspaceInspectorCollapsed = false
-                }
-            } label: {
+            Button(action: action) {
                 Image(systemName: "sidebar.right")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.7))
@@ -675,6 +708,20 @@ public struct ClipEditorView: View {
                 onAudioTargetConsumed: { pendingAudioTrackID = nil }
             )
         }
+        // P2: narrow regular widths open the tabbed inspector as a sheet.
+        .sheet(isPresented: $tabbedInspectorSheetRequested) {
+            EditorInspectorView(
+                context: inspectorContext,
+                store: store,
+                segmentID: store.selection.singleSelectedID,
+                selectionCount: store.selection.selectedSegmentIDs.count,
+                activeTab: $inspectorTab,
+                onCollapse: { tabbedInspectorSheetRequested = false }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         // P1: replace is a command, not an inspector property.
         .sheet(isPresented: $showReplacePanel) {
             if let segmentID = store.selection.singleSelectedID {
@@ -871,7 +918,11 @@ public struct ClipEditorView: View {
 
                 Button {
                     if workspaceForm == .mediumWorkspace || workspaceForm == .wideWorkspace {
-                        isWorkspaceInspectorCollapsed.toggle()
+                        if isTabbedInspectorSheetMode {
+                            tabbedInspectorSheetRequested = true
+                        } else {
+                            isWorkspaceInspectorCollapsed.toggle()
+                        }
                     } else {
                         showInspector = true
                     }
