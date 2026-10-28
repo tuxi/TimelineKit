@@ -600,6 +600,25 @@ public final class TimelineDocument: Identifiable {
         mutate("调色") { tl in tl.updateSegment(id: segmentID) { $0.adjustment = adjustment } }
     }
 
+    public func previewTransform(segmentID: UUID, transform: SegmentTransform) {
+        timeline.updateSegment(id: segmentID) { $0.transform = transform }
+        compositionVersion += 1
+    }
+
+    /// Commits a transform change. `undoBase` is the transform captured when a
+    /// slider drag began; resetting to it before `mutate` ensures undo restores
+    /// the pre-drag state instead of the last preview frame.
+    public func setTransform(
+        segmentID: UUID,
+        transform: SegmentTransform,
+        undoBase: SegmentTransform? = nil
+    ) {
+        if let undoBase {
+            timeline.updateSegment(id: segmentID) { $0.transform = undoBase }
+        }
+        mutate("调整变换") { tl in tl.updateSegment(id: segmentID) { $0.transform = transform } }
+    }
+
     public func resetAdjustment(segmentID: UUID) {
         mutate("重置调色") { tl in tl.updateSegment(id: segmentID) { $0.adjustment = .identity } }
     }

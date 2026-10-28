@@ -125,14 +125,24 @@ struct EditorInspectorView: View {
         switch activeTab {
         case .video:
             if let segment {
-                EditorInspectorVideoContent(segment: segment)
+                EditorInspectorVideoContent(segment: segment, store: store)
             } else {
                 missingSelection
             }
 
         case .audio:
-            if let segment, case .audio = segment.content {
-                EditorInspectorAudioContent(segment: segment)
+            if let segment {
+                switch segment.content {
+                case .audio:
+                    EditorInspectorAudioContent(segment: segment, store: store)
+                case .video:
+                    EditorInspectorVideoAudioContent(segment: segment, store: store)
+                default:
+                    placeholder(
+                        "音频属性",
+                        "选择音频或视频片段后显示音频属性。"
+                    )
+                }
             } else {
                 placeholder(
                     "音频属性",
@@ -142,21 +152,21 @@ struct EditorInspectorView: View {
 
         case .color:
             if let segment {
-                EditorInspectorColorContent(segment: segment)
+                EditorInspectorColorContent(segment: segment, store: store)
             } else {
                 missingSelection
             }
 
         case .animation:
             if let segment {
-                EditorInspectorAnimationContent(segment: segment)
+                EditorInspectorAnimationContent(segment: segment, store: store)
             } else {
                 missingSelection
             }
 
         case .text, .layout:
             if let segment, segment.isText || segment.isSubtitle {
-                EditorInspectorTextContent(segment: segment, tab: activeTab)
+                EditorInspectorTextContent(segment: segment, store: store, tab: activeTab)
             } else {
                 placeholder(
                     "文字属性",
@@ -278,43 +288,137 @@ extension EditorInspectorContext {
 
 private struct EditorInspectorVideoContent: View {
     let segment: EditorSegment
+    @Bindable var store: EditorStore
+
+    @State private var transformEditBase: SegmentTransform?
 
     var body: some View {
         VStack(spacing: 10) {
             InspectorSection("变换") {
-                InspectorRow("位置", String(
-                    format: "%.2f, %.2f",
-                    segment.transform.position.x,
-                    segment.transform.position.y
-                ))
-                InspectorRow("缩放", percent(segment.transform.scale))
-                InspectorRow("旋转", String(
-                    format: "%.1f°",
-                    segment.transform.rotation * 180 / .pi
-                ))
-                InspectorRow("不透明度", percent(segment.transform.opacity))
+                InspectorSliderRow(
+                    label: "水平位置",
+                    value: segment.transform.position.x,
+                    range: 0...1,
+                    step: 0.01,
+                    format: { String(format: "%.2f", $0) },
+                    onPreview: preview { updated(positionX: $0) },
+                    onEnd: commit { updated(positionX: $0) }
+                )
+
+                InspectorSliderRow(
+                    label: "垂直位置",
+                    value: segment.transform.position.y,
+                    range: 0...1,
+                    step: 0.01,
+                    format: { String(format: "%.2f", $0) },
+                    onPreview: preview { updated(positionY: $0) },
+                    onEnd: commit { updated(positionY: $0) }
+                )
+
+                InspectorSliderRow(
+                    label: "缩放",
+                    value: segment.transform.scale,
+                    range: 0.1...4,
+                    step: 0.01,
+                    format: { String(format: "%.0f%%", $0 * 100) },
+                    onPreview: preview { updated(scale: $0) },
+                    onEnd: commit { updated(scale: $0) }
+                )
+
+                InspectorSliderRow(
+                    label: "旋转",
+                    value: segment.transform.rotation * 180 / .pi,
+                    range: -180...180,
+                    step: 1,
+                    format: { String(format: "%.0f°", $0) },
+                    onPreview: preview { updated(rotationDegrees: $0) },
+                    onEnd: commit { updated(rotationDegrees: $0) }
+                )
+
+                InspectorSliderRow(
+                    label: "不透明度",
+                    value: segment.transform.opacity,
+                    range: 0...1,
+                    step: 0.01,
+                    format: { String(format: "%.0f%%", $0 * 100) },
+                    onPreview: preview { updated(opacity: $0) },
+                    onEnd: commit { updated(opacity: $0) }
+                )
+
+                Button("重置变换") {
+                    store.setTransform(segmentID: segment.id, transform: .identity)
+                }
+                .buttonStyle(.bordered)
             }
 
             InspectorSection("速度") {
                 InspectorRow("倍率", String(format: "%.2fx", segment.speed))
+                Text("视频速度渲染将在后续接入")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.3))
             }
 
             if case .video(let content) = segment.content {
                 InspectorSection("内容") {
                     InspectorRow("填充", content.fit.rawValue)
-                    InspectorRow("静音", content.isMuted ? "是" : "否")
+                    Toggle(
+                        "静音原音",
+                        isOn: Binding(
+                            get: { content.isMuted },
+                            set: {
+                                store.setVideoMuted(
+                                    segmentID: segment.id,
+                                    isMuted: $0
+                                )
+                            }
+                        )
+                    )
+                    .font(.system(size: 12))
+                    .tint(.white.opacity(0.8))
                 }
             }
-
-            Text("属性编辑将在 P1 接入")
-                .font(.system(size: 10))
-                .foregroundStyle(.white.opacity(0.3))
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func percent(_ value: Double) -> String {
-        String(format: "%.0f%%", value * 100)
+    private func preview(_ transform: @escaping (Double) -> SegmentTransform) -> (Double) -> Void {
+        { value in
+            if transformEditBase == nil {
+                transformEditBase = segment.transform
+            }
+            store.previewTransform(
+                segmentID: segment.id,
+                transform: transform(value)
+            )
+        }
+    }
+
+    private func commit(_ transform: @escaping (Double) -> SegmentTransform) -> (Double) -> Void {
+        { value in
+            store.setTransform(
+                segmentID: segment.id,
+                transform: transform(value),
+                undoBase: transformEditBase
+            )
+            transformEditBase = nil
+        }
+    }
+
+    private func updated(
+        positionX: Double? = nil,
+        positionY: Double? = nil,
+        scale: Double? = nil,
+        rotationDegrees: Double? = nil,
+        opacity: Double? = nil
+    ) -> SegmentTransform {
+        var transform = segment.transform
+        if let positionX { transform.position.x = positionX }
+        if let positionY { transform.position.y = positionY }
+        if let scale { transform.scale = scale }
+        if let rotationDegrees {
+            transform.rotation = rotationDegrees * .pi / 180
+        }
+        if let opacity { transform.opacity = opacity }
+        return transform
     }
 }
 
@@ -322,23 +426,140 @@ private struct EditorInspectorVideoContent: View {
 
 private struct EditorInspectorAudioContent: View {
     let segment: EditorSegment
+    @Bindable var store: EditorStore
+
+    private var maxFade: Double {
+        max(0.01, min(2.0, segment.targetRange.duration / 2))
+    }
 
     var body: some View {
         if case .audio(let content) = segment.content {
             VStack(spacing: 10) {
                 InspectorSection("音量") {
-                    InspectorRow("音量", String(format: "%.0f%%", content.volume * 100))
-                    InspectorRow("静音", content.isMuted ? "是" : "否")
+                    InspectorSliderRow(
+                        label: "音量",
+                        value: content.volume,
+                        range: 0...2,
+                        step: 0.05,
+                        format: { String(format: "%.0f%%", $0 * 100) },
+                        onPreview: {
+                            store.previewAudioVolume(
+                                segmentID: segment.id,
+                                volume: $0
+                            )
+                        },
+                        onEnd: {
+                            store.setAudioVolume(
+                                segmentID: segment.id,
+                                volume: $0
+                            )
+                        }
+                    )
+
+                    Toggle(
+                        "静音",
+                        isOn: Binding(
+                            get: { content.isMuted },
+                            set: {
+                                store.muteAudioSegment(
+                                    id: segment.id,
+                                    isMuted: $0
+                                )
+                            }
+                        )
+                    )
+                    .font(.system(size: 12))
+                    .tint(.white.opacity(0.8))
+
                     InspectorRow("循环", content.isLooping ? "是" : "否")
                 }
 
                 InspectorSection("淡化") {
-                    InspectorRow("淡入", String(format: "%.2fs", content.fadeInDuration))
-                    InspectorRow("淡出", String(format: "%.2fs", content.fadeOutDuration))
+                    InspectorSliderRow(
+                        label: "淡入",
+                        value: content.fadeInDuration,
+                        range: 0...maxFade,
+                        step: 0.01,
+                        format: { String(format: "%.2fs", $0) },
+                        onPreview: { _ in },
+                        onEnd: {
+                            store.mutateAudioFade(
+                                segmentID: segment.id,
+                                fadeIn: $0,
+                                fadeOut: content.fadeOutDuration
+                            )
+                        }
+                    )
+
+                    InspectorSliderRow(
+                        label: "淡出",
+                        value: content.fadeOutDuration,
+                        range: 0...maxFade,
+                        step: 0.01,
+                        format: { String(format: "%.2fs", $0) },
+                        onPreview: { _ in },
+                        onEnd: {
+                            store.mutateAudioFade(
+                                segmentID: segment.id,
+                                fadeIn: content.fadeInDuration,
+                                fadeOut: $0
+                            )
+                        }
+                    )
                 }
 
                 InspectorSection("速度") {
-                    InspectorRow("倍率", String(format: "%.2fx", segment.speed))
+                    InspectorSliderRow(
+                        label: "倍率",
+                        value: segment.speed,
+                        range: EditorStore.audioSpeedRange,
+                        step: 0.1,
+                        format: { String(format: "%.1fx", $0) },
+                        onPreview: {
+                            store.previewAudioSpeed(
+                                segmentID: segment.id,
+                                speed: $0
+                            )
+                        },
+                        onEnd: {
+                            store.setAudioSpeed(
+                                segmentID: segment.id,
+                                speed: $0
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct EditorInspectorVideoAudioContent: View {
+    let segment: EditorSegment
+    @Bindable var store: EditorStore
+
+    var body: some View {
+        if case .video(let content) = segment.content {
+            VStack(spacing: 10) {
+                InspectorSection("原音") {
+                    Toggle(
+                        "静音原音",
+                        isOn: Binding(
+                            get: { content.isMuted },
+                            set: {
+                                store.setVideoMuted(
+                                    segmentID: segment.id,
+                                    isMuted: $0
+                                )
+                            }
+                        )
+                    )
+                    .font(.system(size: 12))
+                    .tint(.white.opacity(0.8))
+
+                    Text("视频音量混合将在后续接入")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.3))
                 }
             }
         }
@@ -349,26 +570,172 @@ private struct EditorInspectorAudioContent: View {
 
 private struct EditorInspectorColorContent: View {
     let segment: EditorSegment
+    @Bindable var store: EditorStore
+
+    private var adjustment: SegmentAdjustment {
+        segment.adjustment
+    }
 
     var body: some View {
-        let adjustment = segment.adjustment
         VStack(spacing: 10) {
             InspectorSection("基础") {
-                InspectorRow("亮度", String(format: "%.2f", adjustment.brightness))
-                InspectorRow("对比度", String(format: "%.2f", adjustment.contrast))
-                InspectorRow("饱和度", String(format: "%.2f", adjustment.saturation))
+                slider("亮度", value: adjustment.brightness, range: -1...1) {
+                    adjusted(brightness: $0)
+                }
+                slider(
+                    "对比度",
+                    value: adjustment.contrast - 1,
+                    range: -0.5...0.5
+                ) {
+                    adjusted(contrast: $0 + 1)
+                }
+                slider(
+                    "饱和度",
+                    value: adjustment.saturation - 1,
+                    range: -1...1
+                ) {
+                    adjusted(saturation: $0 + 1)
+                }
             }
 
             InspectorSection("色温") {
-                InspectorRow("色温", String(format: "%.0fK", adjustment.temperature))
-                InspectorRow("色调", String(format: "%.0f", adjustment.tint))
+                slider(
+                    "色温",
+                    value: adjustment.temperature,
+                    range: 2000...9000,
+                    step: 10,
+                    format: { String(format: "%.0f K", $0) }
+                ) {
+                    adjusted(temperature: $0)
+                }
+                slider(
+                    "色调",
+                    value: adjustment.tint,
+                    range: -150...150,
+                    step: 1,
+                    format: { String(format: "%+.0f", $0) }
+                ) {
+                    adjusted(tint: $0)
+                }
+            }
+
+            InspectorSection("明暗") {
+                slider("高光", value: adjustment.highlights, range: -1...1) {
+                    adjusted(highlights: $0)
+                }
+                slider("阴影", value: adjustment.shadows, range: -1...1) {
+                    adjusted(shadows: $0)
+                }
             }
 
             InspectorSection("滤镜") {
-                InspectorRow("滤镜", adjustment.filterName?.rawValue ?? "无")
-                InspectorRow("强度", String(format: "%.0f%%", adjustment.filterIntensity * 100))
+                Menu {
+                    Button("无") {
+                        setFilter(nil)
+                    }
+                    ForEach(PresetFilter.allCases, id: \.self) { preset in
+                        Button(preset.displayName) {
+                            setFilter(preset)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Text("滤镜")
+                            .foregroundStyle(.white.opacity(0.5))
+                        Spacer()
+                        Text(adjustment.filterName?.displayName ?? "无")
+                            .foregroundStyle(.white.opacity(0.85))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
+                    .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+
+                if adjustment.filterName != nil {
+                    slider(
+                        "强度",
+                        value: adjustment.filterIntensity,
+                        range: 0...1,
+                        format: { String(format: "%.0f%%", $0 * 100) }
+                    ) {
+                        adjustedFilter(adjustment.filterName, intensity: $0)
+                    }
+                }
             }
+
+            Button("重置调色") {
+                store.setAdjustment(segmentID: segment.id, adjustment: .identity)
+            }
+            .buttonStyle(.bordered)
         }
+    }
+
+    private func slider(
+        _ label: String,
+        value: Double,
+        range: ClosedRange<Double>,
+        step: Double = 0.01,
+        format: @escaping (Double) -> String = { String(format: "%+.2f", $0) },
+        _ make: @escaping (Double) -> SegmentAdjustment
+    ) -> some View {
+        InspectorSliderRow(
+            label: label,
+            value: value,
+            range: range,
+            step: step,
+            format: format,
+            onPreview: {
+                store.previewAdjustment(
+                    segmentID: segment.id,
+                    adjustment: make($0)
+                )
+            },
+            onEnd: {
+                store.setAdjustment(
+                    segmentID: segment.id,
+                    adjustment: make($0)
+                )
+            }
+        )
+    }
+
+    private func setFilter(_ name: PresetFilter?) {
+        store.setAdjustment(
+            segmentID: segment.id,
+            adjustment: adjustedFilter(name)
+        )
+    }
+
+    private func adjusted(
+        brightness: Double? = nil,
+        contrast: Double? = nil,
+        saturation: Double? = nil,
+        temperature: Double? = nil,
+        tint: Double? = nil,
+        highlights: Double? = nil,
+        shadows: Double? = nil
+    ) -> SegmentAdjustment {
+        var value = adjustment
+        if let brightness { value.brightness = brightness }
+        if let contrast { value.contrast = contrast }
+        if let saturation { value.saturation = saturation }
+        if let temperature { value.temperature = temperature }
+        if let tint { value.tint = tint }
+        if let highlights { value.highlights = highlights }
+        if let shadows { value.shadows = shadows }
+        return value
+    }
+
+    private func adjustedFilter(
+        _ name: PresetFilter?,
+        intensity: Double? = nil
+    ) -> SegmentAdjustment {
+        var value = adjustment
+        value.filterName = name
+        if let intensity { value.filterIntensity = intensity }
+        return value
     }
 }
 
@@ -376,6 +743,9 @@ private struct EditorInspectorColorContent: View {
 
 private struct EditorInspectorAnimationContent: View {
     let segment: EditorSegment
+    @Bindable var store: EditorStore
+
+    @State private var showPicker = false
 
     var body: some View {
         VStack(spacing: 10) {
@@ -394,10 +764,15 @@ private struct EditorInspectorAnimationContent: View {
                 }
             }
 
-            Text("完整动画选择器将在 P1 接入")
-                .font(.system(size: 10))
-                .foregroundStyle(.white.opacity(0.3))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("选择动画") {
+                showPicker = true
+            }
+            .buttonStyle(.bordered)
+        }
+        .sheet(isPresented: $showPicker) {
+            AnimationPickerSheet(segmentID: segment.id, store: store)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
     }
 }
@@ -406,7 +781,10 @@ private struct EditorInspectorAnimationContent: View {
 
 private struct EditorInspectorTextContent: View {
     let segment: EditorSegment
+    @Bindable var store: EditorStore
     let tab: EditorInspectorTab
+
+    @State private var showEditor = false
 
     var body: some View {
         VStack(spacing: 10) {
@@ -458,10 +836,15 @@ private struct EditorInspectorTextContent: View {
                 }
             }
 
-            Text("文字属性编辑将在 P1 接入")
-                .font(.system(size: 10))
-                .foregroundStyle(.white.opacity(0.3))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("编辑文本") {
+                showEditor = true
+            }
+            .buttonStyle(.bordered)
+        }
+        .sheet(isPresented: $showEditor) {
+            TextEditPanel(segmentID: segment.id, store: store)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
 }
@@ -590,6 +973,80 @@ private struct InspectorRow: View {
                 .foregroundStyle(.white.opacity(0.85))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+        }
+    }
+}
+
+private struct InspectorSliderRow: View {
+    let label: String
+    let value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    let format: (Double) -> String
+    let onPreview: (Double) -> Void
+    let onEnd: (Double) -> Void
+
+    @State private var localValue: Double
+    @State private var isDragging = false
+
+    init(
+        label: String,
+        value: Double,
+        range: ClosedRange<Double>,
+        step: Double,
+        format: @escaping (Double) -> String,
+        onPreview: @escaping (Double) -> Void,
+        onEnd: @escaping (Double) -> Void
+    ) {
+        self.label = label
+        self.value = value
+        self.range = range
+        self.step = step
+        self.format = format
+        self.onPreview = onPreview
+        self.onEnd = onEnd
+        _localValue = State(initialValue: value)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Text(label)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.5))
+
+                Spacer(minLength: 8)
+
+                Text(format(localValue))
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+
+            Slider(
+                value: Binding(
+                    get: { localValue },
+                    set: { newValue in
+                        localValue = newValue
+                        onPreview(newValue)
+                    }
+                ),
+                in: range,
+                step: step,
+                onEditingChanged: { editing in
+                    isDragging = editing
+                    if !editing {
+                        onEnd(localValue)
+                    }
+                }
+            )
+            .tint(.white.opacity(0.85))
+        }
+        .onChange(of: value) { _, newValue in
+            if !isDragging {
+                localValue = newValue
+            }
         }
     }
 }

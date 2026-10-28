@@ -282,6 +282,18 @@ public final class EditorStore: @MainActor Identifiable {
 
     public func previewAdjustment(segmentID: UUID, adjustment: SegmentAdjustment) { document.previewAdjustment(segmentID: segmentID, adjustment: adjustment) }
     public func setAdjustment(segmentID: UUID, adjustment: SegmentAdjustment) { document.setAdjustment(segmentID: segmentID, adjustment: adjustment) }
+    public func previewTransform(segmentID: UUID, transform: SegmentTransform) { document.previewTransform(segmentID: segmentID, transform: transform) }
+    public func setTransform(
+        segmentID: UUID,
+        transform: SegmentTransform,
+        undoBase: SegmentTransform? = nil
+    ) {
+        document.setTransform(
+            segmentID: segmentID,
+            transform: transform,
+            undoBase: undoBase
+        )
+    }
     public func resetAdjustment(segmentID: UUID) { document.resetAdjustment(segmentID: segmentID) }
     public func previewClipAnimation(segmentID: UUID, animation: ClipAnimation) { document.previewClipAnimation(segmentID: segmentID, animation: animation) }
     public func setClipAnimation(segmentID: UUID, animation: ClipAnimation) { document.setClipAnimation(segmentID: segmentID, animation: animation) }
