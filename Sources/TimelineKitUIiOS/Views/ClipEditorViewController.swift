@@ -432,10 +432,21 @@ public final class ClipEditorViewController: UIViewController {
         let point = gr.location(in: canvas)
         // v4: header controls moved to TrackLabelsView sidebar — canvas taps
         // are always segment taps (or deselect).
-        if let segID = canvas.segmentID(at: point) {
+        if let segID = canvas.segmentID(at: point),
+           let segment = store.timeline.segment(id: segID) {
             store.selection.selectedSegmentIDs = [segID]
             store.selection.editingSegmentID   = nil
             store.selection.selectedTransitionID = nil
+
+            // Keep the viewer on a selected timeline clip. If the playhead is
+            // outside that clip, seek to its start; otherwise preserve the
+            // current frame inside the clip.
+            let start = segment.targetRange.start
+            let end = start + segment.targetRange.duration
+            let playhead = store.selection.playheadTime
+            if playhead < start || playhead > end {
+                store.seek(to: start)
+            }
         } else {
             store.selection.deselect()
         }

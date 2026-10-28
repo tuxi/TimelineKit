@@ -1,19 +1,31 @@
 #if canImport(UIKit)
 import SwiftUI
 
-/// Material entry panel for the wide workspace.
+/// Left-side material browser for regular layouts.
 ///
-/// The full media browser is deferred; this panel provides the two import
-/// entries and a file drop target while keeping the preview and inspector
-/// visible.
+/// P2.1 provides the Media / Audio / Text groups and routes to the existing
+/// import and creation actions. Asset thumbnails and canvas preview land in P2.2.
 struct EditorMediaPanel: View {
     @Binding var isCollapsed: Bool
-    var width: CGFloat = 180
+    var width: CGFloat = 220
     var onPhotos: () -> Void
     var onFiles: () -> Void
+    var onAudioTools: () -> Void
+    var onCreateText: () -> Void
+    var onCreateSubtitle: () -> Void
     var onDropURLs: ([URL]) -> Void
+    var onClose: (() -> Void)? = nil
 
+    @State private var selectedTab: Tab = .media
     @State private var isTargeted = false
+
+    private enum Tab: String, CaseIterable, Identifiable {
+        case media = "媒体"
+        case audio = "音频"
+        case text = "文字"
+
+        var id: String { rawValue }
+    }
 
     var body: some View {
         Group {
@@ -36,58 +48,108 @@ struct EditorMediaPanel: View {
                 Spacer(minLength: 8)
 
                 Button {
-                    withAnimation(.spring(duration: 0.25)) {
-                        isCollapsed = true
+                    if let onClose {
+                        onClose()
+                    } else {
+                        withAnimation(.spring(duration: 0.25)) {
+                            isCollapsed = true
+                        }
                     }
                 } label: {
-                    Image(systemName: "sidebar.left")
+                    Image(systemName: onClose == nil ? "sidebar.left" : "xmark")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.65))
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
                 .hoverEffect(.highlight)
-                .accessibilityLabel("收起素材区")
+                .accessibilityLabel(onClose == nil ? "收起素材区" : "关闭素材")
             }
             .padding(.horizontal, 12)
             .frame(height: 38)
 
             Divider().background(Color.white.opacity(0.08))
 
-            VStack(spacing: 10) {
-                Button(action: onPhotos) {
-                    Label("照片与视频", systemImage: "photo.on.rectangle")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .hoverEffect(.highlight)
+            tabBar
 
-                Button(action: onFiles) {
-                    Label("文件", systemImage: "folder")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .hoverEffect(.highlight)
+            Divider().background(Color.white.opacity(0.08))
 
-                Text("拖入视频或图片\n添加到时间线")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.45))
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(
-                                isTargeted ? Color.yellow : Color.white.opacity(0.15),
-                                style: StrokeStyle(lineWidth: 1, dash: [4, 3])
-                            )
-                    )
+            Group {
+                switch selectedTab {
+                case .media:
+                    mediaContent
+                case .audio:
+                    audioContent
+                case .text:
+                    textContent
+                }
             }
             .padding(10)
 
             Spacer(minLength: 0)
         }
         .frame(width: width)
+    }
+
+    private var tabBar: some View {
+        HStack(spacing: 6) {
+            ForEach(Tab.allCases) { tab in
+                let isSelected = selectedTab == tab
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        selectedTab = tab
+                    }
+                } label: {
+                    Text(tab.rawValue)
+                        .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                        .foregroundStyle(
+                            isSelected
+                            ? Color.black
+                            : Color.white.opacity(0.7)
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(
+                                    isSelected
+                                    ? Color.white
+                                    : Color.white.opacity(0.06)
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
+    private var mediaContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            entryButton(
+                "照片与视频",
+                icon: "photo.on.rectangle",
+                action: onPhotos
+            )
+            entryButton("文件", icon: "folder", action: onFiles)
+
+            Text("拖入视频或图片\n添加到时间线")
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.45))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 18)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(
+                            isTargeted ? Color.yellow : Color.white.opacity(0.15),
+                            style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+                        )
+                )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .overlay {
             if isTargeted {
                 RoundedRectangle(cornerRadius: 8)
@@ -101,6 +163,65 @@ struct EditorMediaPanel: View {
             onDropURLs(urls)
             return true
         } isTargeted: { isTargeted = $0 }
+    }
+
+    private var audioContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            entryButton(
+                "音频工具",
+                icon: "waveform",
+                action: onAudioTools
+            )
+
+            Text("提取音频、本地音乐\n以及后续的录音和 TTS")
+                .font(.system(size: 10))
+                .foregroundStyle(.white.opacity(0.4))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var textContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            entryButton(
+                "新建文字",
+                icon: "textformat",
+                action: onCreateText
+            )
+            entryButton(
+                "新建字幕",
+                icon: "text.bubble",
+                action: onCreateSubtitle
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func entryButton(
+        _ title: String,
+        icon: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(width: 20)
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.white.opacity(0.85))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
     }
 
     private var collapsedRail: some View {

@@ -109,6 +109,8 @@ public struct ClipEditorView: View {
     @State private var showAddMediaPicker = false
     @State private var showFileImporter = false
     @State private var showAudioTools = false
+    @State private var showMediaBrowser = false
+    @State private var workspaceContentSize: CGSize = .zero
     @State private var isMediaDropTargeted = false
     @State private var showInspector = false
     @State private var isWorkspaceInspectorCollapsed = false
@@ -176,6 +178,7 @@ public struct ClipEditorView: View {
             .onChange(of: decision?.contentSize, initial: true) { _, newSize in
                 let size = newSize ?? geo.size
                 let resolved = decision?.form ?? .phone
+                workspaceContentSize = size
                 isTabbedInspectorSheetMode = inspectorMode == .tabbed
                     && (resolved == .mediumWorkspace || resolved == .wideWorkspace)
                     && size.width < 680
@@ -342,8 +345,23 @@ public struct ClipEditorView: View {
     }
 
     private var mediaPanel: some View {
+        mediaBrowserPanel(isCollapsed: $isMediaPanelCollapsed)
+    }
+
+    private var usesPersistentMediaPanel: Bool {
+        workspaceForm == .wideWorkspace
+            && workspaceContentSize.width > workspaceContentSize.height
+            && workspaceContentSize.width >= 1000
+    }
+
+    private func mediaBrowserPanel(
+        isCollapsed: Binding<Bool>,
+        width: CGFloat = 220,
+        onClose: (() -> Void)? = nil
+    ) -> some View {
         EditorMediaPanel(
-            isCollapsed: $isMediaPanelCollapsed,
+            isCollapsed: isCollapsed,
+            width: width,
             onPhotos: {
                 pendingVisualTrackID = nil
                 showAddMediaPicker = true
@@ -352,9 +370,26 @@ public struct ClipEditorView: View {
                 pendingVisualTrackID = nil
                 showFileImporter = true
             },
+            onAudioTools: {
+                showMediaBrowser = false
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    showAudioTools = true
+                }
+            },
+            onCreateText: {
+                addTextAtPlayhead()
+                showMediaBrowser = false
+            },
+            onCreateSubtitle: {
+                addSubtitleAtPlayhead()
+                showMediaBrowser = false
+            },
             onDropURLs: { urls in
+                showMediaBrowser = false
                 Task { await loadDroppedMediaURLs(urls) }
-            }
+            },
+            onClose: onClose
         )
     }
 
@@ -1005,6 +1040,20 @@ public struct ClipEditorView: View {
             .presentationDetents([.height(140)])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showMediaBrowser) {
+            mediaBrowserPanel(
+                isCollapsed: .constant(false),
+                width: 320,
+                onClose: { showMediaBrowser = false }
+            )
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .top
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: - Observers & Toolbar
@@ -1159,6 +1208,17 @@ public struct ClipEditorView: View {
                 }
                 .disabled(!store.canRedo)
                 .keyboardShortcut("z", modifiers: [.command, .shift])
+
+                if inspectorMode == .tabbed
+                    && (workspaceForm == .mediumWorkspace
+                        || workspaceForm == .wideWorkspace)
+                    && !usesPersistentMediaPanel {
+                    Button {
+                        showMediaBrowser = true
+                    } label: {
+                        Label("素材", systemImage: "folder")
+                    }
+                }
 
                 if workspaceForm != .phoneLandscape {
                     Button {
