@@ -9,7 +9,8 @@ import TimelineKitUIShared
 /// V7: preset-based UI (tabs + grid + duration slider).
 /// Applies changes immediately on selection; "完成" dismisses.
 struct TransitionEditSheet: View {
-
+    @Environment(\.dismiss) private var dismiss
+    
     let context: TransitionEditContext
     @Bindable var store: EditorStore
 
@@ -88,7 +89,6 @@ struct TransitionEditSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            dragHandle
 
             header
 
@@ -116,25 +116,20 @@ struct TransitionEditSheet: View {
 
     // MARK: - Sub-views
 
-    private var dragHandle: some View {
-        Capsule()
-            .fill(Color.white.opacity(0.3))
-            .frame(width: 36, height: 4)
-            .padding(.top, 8)
-    }
-
     private var header: some View {
         HStack {
             Text(context.existingTransition == nil ? "添加转场" : "编辑转场")
                 .font(.headline)
                 .foregroundStyle(.white)
             Spacer()
-            Button("完成") { dismiss() }
-                .foregroundStyle(.white)
-                .fontWeight(.medium)
+            Button("完成") {
+                onDismiss()
+            }
+            .foregroundStyle(.white)
+            .fontWeight(.medium)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 10)
+        .padding(.top, 13)
     }
 
     private var tabBar: some View {
@@ -235,8 +230,9 @@ struct TransitionEditSheet: View {
         }
     }
 
-    private func dismiss() {
+    private func onDismiss() {
         store.selection.editingTransitionContext = nil
+        dismiss()
     }
 }
 

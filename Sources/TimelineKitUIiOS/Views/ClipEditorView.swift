@@ -902,7 +902,7 @@ public struct ClipEditorView: View {
         )) {
             if let context = fallbackTransitionContext {
                 TransitionEditSheet(context: context, store: store)
-                    .presentationDetents([.medium, .large])
+                    .presentationDetents([.medium, .large, .height(200)])
                     .presentationDragIndicator(.visible)
             }
         }
