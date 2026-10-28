@@ -477,7 +477,7 @@ public struct ClipEditorView: View {
                     )
 
                 Divider().background(Color.white.opacity(0.08))
-                editorControlBarView(height: 44)
+                editorControlBar
             }
             .frame(width: max(decision.previewSize.width, 1))
 

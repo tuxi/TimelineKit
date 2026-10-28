@@ -6,7 +6,7 @@ import SwiftUI
 struct EditorLandscapeToolStrip: View {
     @Binding var activeCategory: EditorToolCategory?
 
-    static let height: CGFloat = 48
+    static let height: CGFloat = 52
 
     var body: some View {
         HStack(spacing: 2) {
