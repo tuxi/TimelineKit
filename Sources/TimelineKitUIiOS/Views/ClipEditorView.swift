@@ -468,12 +468,18 @@ public struct ClipEditorView: View {
         decision: EditorLayoutDecision
     ) -> some View {
         HStack(spacing: 0) {
-            previewPane
-                .frame(
-                    width: max(decision.previewSize.width, 1),
-                    alignment: .top
-                )
-                .frame(maxHeight: .infinity, alignment: .top)
+            VStack(spacing: 0) {
+                previewPane
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: .top
+                    )
+
+                Divider().background(Color.white.opacity(0.08))
+                editorControlBarView(height: 44)
+            }
+            .frame(width: max(decision.previewSize.width, 1))
 
             Divider().background(Color.white.opacity(0.08))
 
@@ -482,8 +488,6 @@ public struct ClipEditorView: View {
                     Color.clear
                         .frame(height: decision.topControlInset)
                 }
-
-                editorControlBarView(height: 44)
 
                 ZStack(alignment: .bottom) {
                     trackPaneView(minHeight: 96)
@@ -548,7 +552,6 @@ public struct ClipEditorView: View {
         max(
             120,
             decision.timelineSize.height
-                - 44
                 - EditorLandscapeToolStrip.height
                 - decision.topControlInset
         )
