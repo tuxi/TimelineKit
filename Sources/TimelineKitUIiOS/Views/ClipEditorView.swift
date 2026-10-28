@@ -354,7 +354,11 @@ public struct ClipEditorView: View {
                     compositionPlayer: coordinator.player,
                     timelinePreviewView: coordinator.timelinePreviewView
                 )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity,
+                    alignment: .top
+                )
 
                 Divider().background(Color.white.opacity(0.08))
 
@@ -1022,10 +1026,7 @@ public struct ClipEditorView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                specButton
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                exportButton
+                exportMenu
             }
         }
     }
@@ -1269,33 +1270,27 @@ public struct ClipEditorView: View {
         return dur.seconds
     }
 
-    private var exportButton: some View {
-        Button {
-            store.pause()
-            showExport = true
+    private var exportMenu: some View {
+        Menu {
+            Button {
+                store.pause()
+                showExport = true
+            } label: {
+                Label("导出", systemImage: "square.and.arrow.up")
+            }
+
+            Button {
+                showExportConfig = true
+            } label: {
+                Label(
+                    "导出规格：\(store.timeline.effectiveExportConfig.resolution.label)",
+                    systemImage: "slider.horizontal.3"
+                )
+            }
         } label: {
             Label("导出", systemImage: "square.and.arrow.up")
         }
-        .foregroundStyle(.white)
-    }
-
-    /// V5 export-config-panel-spec §5.1：规格按钮。常态显示当前生效分辨率。
-    /// 文案跟随 `store.timeline.effectiveExportConfig.resolution.label`：
-    /// 新工程/旧草稿按 canvas 派生（4 种默认 canvas 预设 → "720P"），
-    /// 用户改过则跟用户最后一次选择。
-    private var specButton: some View {
-        Button {
-            showExportConfig = true
-        } label: {
-            Text(store.timeline.effectiveExportConfig.resolution.label)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.white.opacity(0.15))
-                .cornerRadius(6)
-        }
-        .accessibilityLabel("导出规格：\(store.timeline.effectiveExportConfig.resolution.label)")
+        .accessibilityLabel("导出")
     }
 }
 
