@@ -2,10 +2,9 @@
 import SwiftUI
 
 /// Compact landscape tool strip. Lives at the bottom of the timeline column and
-/// only opens the tool sheet when the user explicitly selects a category.
+/// toggles the inline tool panel, matching the portrait bottom toolbar.
 struct EditorLandscapeToolStrip: View {
     @Binding var activeCategory: EditorToolCategory?
-    var onSelect: (EditorToolCategory) -> Void
 
     static let height: CGFloat = 48
 
@@ -15,8 +14,9 @@ struct EditorLandscapeToolStrip: View {
                 let isActive = activeCategory == category
 
                 Button {
-                    activeCategory = category
-                    onSelect(category)
+                    withAnimation(.spring(duration: 0.25)) {
+                        activeCategory = isActive ? nil : category
+                    }
                 } label: {
                     Image(systemName: category.icon)
                         .font(.system(size: 19, weight: .regular))

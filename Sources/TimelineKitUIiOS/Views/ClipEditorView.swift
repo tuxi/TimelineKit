@@ -117,7 +117,6 @@ public struct ClipEditorView: View {
     @State private var showReplacePanel = false
     @State private var isTabbedInspectorSheetMode = false
     @State private var tabbedInspectorSheetRequested = false
-    @State private var showLandscapeToolSheet = false
     @State private var workspaceForm: EditorLayoutForm = .phone
     @State private var addMediaItems: [PhotosPickerItem] = []
     @State private var pendingVisualTrackID: UUID?
@@ -171,9 +170,6 @@ public struct ClipEditorView: View {
                     isWorkspaceInspectorCollapsed = false
                 }
                 workspaceTopHeightOverride = nil
-                if resolved != .phoneLandscape {
-                    showLandscapeToolSheet = false
-                }
                 workspaceForm = resolved
             }
             .onChange(of: decision?.contentSize, initial: true) { _, newSize in
@@ -488,16 +484,55 @@ public struct ClipEditorView: View {
                 }
 
                 editorControlBarView(height: 44)
-                trackPaneView(minHeight: 96)
+
+                ZStack(alignment: .bottom) {
+                    trackPaneView(minHeight: 96)
+
+                    if !toolPanelRoute.isEmpty {
+                        ScrollView {
+                            EditorToolPanelContent(
+                                route: toolPanelRoute,
+                                store: store,
+                                onDismiss: dismissToolPanel,
+                                onAudioTargetConsumed: {
+                                    pendingAudioTrackID = nil
+                                }
+                            )
+                        }
+                        .frame(
+                            maxWidth: .infinity,
+                            maxHeight: landscapePanelHeight(decision)
+                        )
+                        .background(Color(white: 0.11))
+                        .overlay(alignment: .top) {
+                            Divider()
+                                .background(Color.white.opacity(0.08))
+                        }
+                        .transition(
+                            .move(edge: .bottom)
+                                .combined(with: .opacity)
+                        )
+                    }
+                }
 
                 EditorLandscapeToolStrip(
                     activeCategory: $activeToolCategory
-                ) { _ in
-                    showLandscapeToolSheet = true
-                }
+                )
             }
             .frame(width: max(decision.timelineSize.width, 1))
         }
+    }
+
+    private func landscapePanelHeight(
+        _ decision: EditorLayoutDecision
+    ) -> CGFloat {
+        max(
+            120,
+            decision.timelineSize.height
+                - 44
+                - EditorLandscapeToolStrip.height
+                - decision.topControlInset
+        )
     }
 
     // MARK: - Folded layout
@@ -804,20 +839,6 @@ public struct ClipEditorView: View {
                 store: store,
                 onAudioTargetConsumed: { pendingAudioTrackID = nil }
             )
-        }
-        // Compact landscape uses the right-side tool strip and only presents
-        // the tool sheet when the user explicitly taps a category.
-        .sheet(isPresented: $showLandscapeToolSheet) {
-            if activeToolCategory != nil {
-                EditorToolPanelContent(
-                    route: toolPanelRoute,
-                    store: store,
-                    onDismiss: { showLandscapeToolSheet = false },
-                    onAudioTargetConsumed: { pendingAudioTrackID = nil }
-                )
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-            }
         }
         // P2: narrow regular widths open the tabbed inspector as a sheet.
         .sheet(isPresented: $tabbedInspectorSheetRequested) {
