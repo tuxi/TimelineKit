@@ -373,6 +373,7 @@ public struct ClipEditorView: View {
                             store: store,
                             segmentID: store.selection.singleSelectedID,
                             selectionCount: store.selection.selectedSegmentIDs.count,
+                            projectName: projectName,
                             activeTab: $inspectorTab,
                             onCollapse: {
                                 withAnimation(.spring(duration: 0.25)) {
@@ -758,6 +759,7 @@ public struct ClipEditorView: View {
                 store: store,
                 segmentID: store.selection.singleSelectedID,
                 selectionCount: store.selection.selectedSegmentIDs.count,
+                projectName: projectName,
                 activeTab: $inspectorTab,
                 onCollapse: { tabbedInspectorSheetRequested = false }
             )
@@ -1028,10 +1030,6 @@ public struct ClipEditorView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 exportButton
-            }
-            ToolbarItem(placement: .title) {
-                Text(store.timeline.metadata.productName ?? "剪辑")
-                    .foregroundColor(.white)
             }
         }
     }

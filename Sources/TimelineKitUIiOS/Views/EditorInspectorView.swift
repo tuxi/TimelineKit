@@ -15,6 +15,7 @@ struct EditorInspectorView: View {
     let store: EditorStore
     let segmentID: UUID?
     var selectionCount: Int = 1
+    var projectName: String? = nil
     @Binding var activeTab: EditorInspectorTab
     var onCollapse: (() -> Void)? = nil
 
@@ -46,8 +47,8 @@ struct EditorInspectorView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.65))
 
-            if let segmentName {
-                Text(segmentName)
+            if let subtitle = segmentName ?? projectName {
+                Text(subtitle)
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.4))
                     .lineLimit(1)
@@ -201,7 +202,10 @@ struct EditorInspectorView: View {
             }
 
         case .project:
-            EditorInspectorProjectContent(store: store)
+            EditorInspectorProjectContent(
+                store: store,
+                projectName: projectName
+            )
 
         case .multiSelection:
             EditorInspectorMultiSelectionContent(count: selectionCount)
@@ -907,9 +911,14 @@ private struct EditorInspectorInfoContent: View {
 
 private struct EditorInspectorProjectContent: View {
     let store: EditorStore
+    let projectName: String?
 
     var body: some View {
         VStack(spacing: 10) {
+            InspectorSection("项目") {
+                InspectorRow("名称", projectName ?? "未命名项目")
+            }
+
             InspectorSection("画布") {
                 InspectorRow("尺寸", "\(store.timeline.canvas.width) × \(store.timeline.canvas.height)")
                 InspectorRow("帧率", "\(store.timeline.canvas.fps) fps")
