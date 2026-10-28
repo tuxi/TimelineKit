@@ -4,7 +4,9 @@
 
 | 文档 | 内容摘要 | 状态 |
 |---|---|---|
-| [iPhone Duo 与 iPad 自适应编辑工作区设计](iphone-duo-ipad-workspace-spec.md) | 手机与大屏两种 UI 形态、Duo 折叠与遮挡区域、系统栏与工具入口、iPad 工作区、会话连续性、测量阈值、场景边界、实施阶段与验收矩阵 | 设计提案 v0.3，待实施 |
+| [素材优先创建、空白项目与自动画布](automatic-canvas-and-project-creation.md) | 两条创建入口、首个主轨素材定型、批量 / 撤销 / 持久化规则、DreamLog 接入与 UI 验证边界 | 已实现，完整选择器点击流程待复验 |
+| [iPhone Duo 与 iPad 自适应编辑工作区设计](iphone-duo-ipad-workspace-spec.md) | 手机与大屏两种 UI 形态、M1–M4 进度、视口恢复、Duo 基础姿态及输入验证、灰度入口和验收矩阵 | v0.5，主体代码已提交，本轮视口修复与模拟器基础验证完成 |
+| [轨道时间锚点、生命周期与 Duo 模拟器验收](validation/2026-10-26-track-viewport.md) | 109 个宿主用例、Duo / iPad 各 8 个 UIKit 回归、实际姿态与键盘转发、Debug / Release 构建及复跑命令 | 2026-10-26，限定范围通过，真机及完整交互矩阵待验收 |
 
 ## 版本目录
 

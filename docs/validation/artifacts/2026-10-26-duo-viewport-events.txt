@@ -1,0 +1,31 @@
+Device Hub / iPhone Duo Simulator / iOS 27.1 / 2026-10-26
+Final fix: 3b3de5d + uncommitted viewport changes.
+
+[TimelineKitViewport] layout controller=FF715E06-7531-4A33-874F-116D9A9766CE size=(815.0, 140.0) anchor=0.0 pps=20.781273904839612 y=0.0 playhead=0.0
+[TimelineKitViewport] detach controller=FF715E06-7531-4A33-874F-116D9A9766CE size=(815.0, 140.0) anchor=0.0 pps=20.781273904839612 y=0.0 playhead=0.0
+[TimelineKitViewport] layout controller=F67B2EF9-ED63-4BF7-AB23-9808AD26140C size=(319.3333333333333, 433.0) anchor=0.0 pps=20.781273904839612 y=0.0 playhead=0.0
+[TimelineKitViewport] scrub-end controller=F67B2EF9-ED63-4BF7-AB23-9808AD26140C size=(319.3333333333333, 433.0) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.218
+[TimelineKitViewport] detach controller=F67B2EF9-ED63-4BF7-AB23-9808AD26140C size=(319.3333333333333, 433.0) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.218
+[TimelineKitViewport] layout controller=127509C3-F44F-409A-980B-1047B0FC0A33 size=(542.0, 140.0) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.218
+[TimelineKitViewport] layout controller=127509C3-F44F-409A-980B-1047B0FC0A33 size=(458.0, 140.0) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.218
+[TimelineKitViewport] detach controller=127509C3-F44F-409A-980B-1047B0FC0A33 size=(458.0, 140.0) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.218
+[TimelineKitViewport] layout controller=8720666E-7746-40A8-A1DF-BB6127C89687 size=(815.0, 140.0) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.218
+[TimelineKitViewport] detach controller=8720666E-7746-40A8-A1DF-BB6127C89687 size=(815.0, 140.0) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.218
+[TimelineKitViewport] layout controller=F32A47D5-DB30-453E-9DFC-6945DB9C1B15 size=(319.3333333333333, 433.0) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.218
+[TimelineKitViewport] detach controller=F32A47D5-DB30-453E-9DFC-6945DB9C1B15 size=(319.3333333333333, 433.0) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.218
+[TimelineKitViewport] layout controller=9A783D63-A1C8-4250-AD5F-B053DD3A2C86 size=(815.0, 140.0) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.218
+[TimelineKitViewport] layout controller=9A783D63-A1C8-4250-AD5F-B053DD3A2C86 size=(533.0, 185.33333333333334) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.218
+[TimelineKitViewport] layout controller=9A783D63-A1C8-4250-AD5F-B053DD3A2C86 size=(617.0, 185.33333333333334) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.218
+[TimelineKitViewport] detach controller=9A783D63-A1C8-4250-AD5F-B053DD3A2C86 size=(617.0, 185.33333333333334) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.11800000000001
+[TimelineKitViewport] layout controller=DBEFB5D1-BA5C-4235-9C58-97D1BE55CC33 size=(617.0, 301.3333333333333) anchor=39.218 pps=20.781273904839612 y=0.0 playhead=39.11800000000001
+[TimelineKitViewport] scrub-end controller=DBEFB5D1-BA5C-4235-9C58-97D1BE55CC33 size=(617.0, 301.3333333333333) anchor=0.0 pps=20.781273904839612 y=0.0 playhead=0.0
+[TimelineKitViewport] detach controller=DBEFB5D1-BA5C-4235-9C58-97D1BE55CC33 size=(617.0, 301.3333333333333) anchor=8.54134355828221 pps=20.781273904839612 y=0.0 playhead=8.533439793
+[TimelineKitViewport] layout controller=314D68F4-63EA-4E08-9E00-2E02CF46D2E7 size=(617.0, 185.33333333333334) anchor=8.533439793 pps=20.781273904839612 y=0.0 playhead=8.533439793
+[TimelineKitViewport] detach controller=314D68F4-63EA-4E08-9E00-2E02CF46D2E7 size=(617.0, 185.33333333333334) anchor=15.230057668711659 pps=20.781273904839612 y=0.0 playhead=15.233397709
+[TimelineKitViewport] layout controller=B3141C80-20C0-476E-90F2-7BB01D842133 size=(617.0, 301.3333333333333) anchor=15.230057668711659 pps=20.781273904839612 y=0.0 playhead=15.233397709
+[TimelineKitViewport] detach controller=B3141C80-20C0-476E-90F2-7BB01D842133 size=(617.0, 301.3333333333333) anchor=15.230057668711659 pps=20.781273904839612 y=0.0 playhead=15.233397709
+[TimelineKitViewport] detach controller=19E069ED-95A7-4BC1-8C10-C5005E6FF0B6 size=(0.0, 0.0) anchor=15.230057668711659 pps=20.781273904839612 y=0.0 playhead=15.233397709
+[TimelineKitViewport] layout controller=DA1327B8-61F9-4A92-9B61-6B23ADADB4EB size=(403.3333333333333, 433.0) anchor=15.230057668711659 pps=20.781273904839612 y=0.0 playhead=15.233397709
+[TimelineKitViewport] layout controller=DA1327B8-61F9-4A92-9B61-6B23ADADB4EB size=(319.3333333333333, 433.0) anchor=15.230057668711659 pps=20.781273904839612 y=0.0 playhead=15.233397709
+[TimelineKitViewport] detach controller=DA1327B8-61F9-4A92-9B61-6B23ADADB4EB size=(319.3333333333333, 433.0) anchor=15.230057668711659 pps=20.781273904839612 y=0.0 playhead=15.233397709
+[TimelineKitViewport] layout controller=5D28B046-BB49-4974-9DB9-22F38D9BEAB1 size=(815.0, 140.0) anchor=15.230057668711659 pps=20.781273904839612 y=0.0 playhead=15.233397709
