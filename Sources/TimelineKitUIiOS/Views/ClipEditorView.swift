@@ -489,7 +489,7 @@ public struct ClipEditorView: View {
                     trackPaneView(minHeight: 96)
 
                     if !toolPanelRoute.isEmpty {
-                        ScrollView {
+                        ViewThatFits(in: .vertical) {
                             EditorToolPanelContent(
                                 route: toolPanelRoute,
                                 store: store,
@@ -498,6 +498,18 @@ public struct ClipEditorView: View {
                                     pendingAudioTrackID = nil
                                 }
                             )
+                            .fixedSize(horizontal: false, vertical: true)
+
+                            ScrollView {
+                                EditorToolPanelContent(
+                                    route: toolPanelRoute,
+                                    store: store,
+                                    onDismiss: dismissToolPanel,
+                                    onAudioTargetConsumed: {
+                                        pendingAudioTrackID = nil
+                                    }
+                                )
+                            }
                         }
                         .frame(
                             maxWidth: .infinity,
