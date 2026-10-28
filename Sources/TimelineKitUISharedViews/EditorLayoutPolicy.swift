@@ -288,7 +288,7 @@ public enum EditorLayoutPolicy {
         topControlInset: CGFloat
     ) -> EditorLayoutDecision {
         let minColumnWidth: CGFloat = 320
-        let proposedPreview = contentRect.width * 0.56
+        let proposedPreview = contentRect.width * 0.46
         let maxPreview = max(
             minColumnWidth,
             contentRect.width - minColumnWidth

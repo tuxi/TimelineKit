@@ -117,6 +117,7 @@ public struct ClipEditorView: View {
     @State private var showReplacePanel = false
     @State private var isTabbedInspectorSheetMode = false
     @State private var tabbedInspectorSheetRequested = false
+    @State private var showLandscapeToolSheet = false
     @State private var workspaceForm: EditorLayoutForm = .phone
     @State private var addMediaItems: [PhotosPickerItem] = []
     @State private var pendingVisualTrackID: UUID?
@@ -170,6 +171,9 @@ public struct ClipEditorView: View {
                     isWorkspaceInspectorCollapsed = false
                 }
                 workspaceTopHeightOverride = nil
+                if resolved != .phoneLandscape {
+                    showLandscapeToolSheet = false
+                }
                 workspaceForm = resolved
             }
             .onChange(of: decision?.contentSize, initial: true) { _, newSize in
@@ -485,6 +489,12 @@ public struct ClipEditorView: View {
 
                 editorControlBarView(height: 44)
                 trackPaneView(minHeight: 96)
+
+                EditorLandscapeToolStrip(
+                    activeCategory: $activeToolCategory
+                ) { _ in
+                    showLandscapeToolSheet = true
+                }
             }
             .frame(width: max(decision.timelineSize.width, 1))
         }
@@ -795,24 +805,14 @@ public struct ClipEditorView: View {
                 onAudioTargetConsumed: { pendingAudioTrackID = nil }
             )
         }
-        // Compact landscape uses the top tools menu and a sheet instead of the
-        // bottom toolbar/overlay.
-        .sheet(isPresented: Binding(
-            get: {
-                workspaceForm == .phoneLandscape
-                    && activeToolCategory != nil
-            },
-            set: {
-                if !$0 {
-                    activeToolCategory = nil
-                }
-            }
-        )) {
+        // Compact landscape uses the right-side tool strip and only presents
+        // the tool sheet when the user explicitly taps a category.
+        .sheet(isPresented: $showLandscapeToolSheet) {
             if activeToolCategory != nil {
                 EditorToolPanelContent(
                     route: toolPanelRoute,
                     store: store,
-                    onDismiss: { activeToolCategory = nil },
+                    onDismiss: { showLandscapeToolSheet = false },
                     onAudioTargetConsumed: { pendingAudioTrackID = nil }
                 )
                 .presentationDetents([.medium, .large])
@@ -1030,9 +1030,7 @@ public struct ClipEditorView: View {
                 .disabled(!store.canRedo)
                 .keyboardShortcut("z", modifiers: [.command, .shift])
 
-                if workspaceForm == .phoneLandscape {
-                    toolsMenu
-                } else {
+                if workspaceForm != .phoneLandscape {
                     Button {
                         if inspectorMode == .tabbed && workspaceForm == .foldedWorkspace {
                             tabbedInspectorSheetRequested = true
@@ -1105,21 +1103,6 @@ public struct ClipEditorView: View {
     }
 
     // MARK: - Toolbar Items
-
-    private var toolsMenu: some View {
-        Menu {
-            ForEach(EditorToolCategory.allCases.filter(\.isEnabled)) { category in
-                Button {
-                    activeToolCategory = category
-                } label: {
-                    Label(category.rawValue, systemImage: category.icon)
-                }
-            }
-        } label: {
-            Label("工具", systemImage: "hammer")
-        }
-        .accessibilityLabel("工具")
-    }
 
     private var addSegmentButton: some View {
         Button {

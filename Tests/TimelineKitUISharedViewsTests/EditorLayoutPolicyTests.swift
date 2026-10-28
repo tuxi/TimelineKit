@@ -30,8 +30,8 @@ final class EditorLayoutPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(decision.form, .phoneLandscape)
-        XCTAssertEqual(decision.previewSize.width, 489.44, accuracy: 0.01)
-        XCTAssertEqual(decision.timelineSize.width, 384.56, accuracy: 0.01)
+        XCTAssertEqual(decision.previewSize.width, 402.04, accuracy: 0.01)
+        XCTAssertEqual(decision.timelineSize.width, 471.96, accuracy: 0.01)
         XCTAssertEqual(decision.previewSize.height, 402, accuracy: 0.01)
         XCTAssertEqual(decision.timelineSize.height, 402, accuracy: 0.01)
         XCTAssertFalse(decision.showsAuxiliaryPanel)
