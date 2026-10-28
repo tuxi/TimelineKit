@@ -9,12 +9,14 @@ import TimelineKitUIShared
 import TimelineKitUISharedViews
 
 /// Public entry point for the clip editor.
-/// Three-layer architecture (locked):
+/// Phone layout:
 ///   Layer 1 — Preview  : EditorPreviewView (top, proportional height)
 ///   Layer 2 — Tracks   : EditorControlBar + TrackEditorRepresentable (middle, flexible)
 ///   Layer 3 — Toolbar  : EditorSecondaryToolPanel + EditorBottomToolbar (bottom, fixed)
 ///
-/// Tapping a segment ONLY selects it.  Edit panels are opened via the bottom toolbar.
+/// Adaptive mode arranges the same editing session into phone, workspace, or
+/// folded presentations. Track viewport state survives platform-view rebuilds.
+/// Tapping a segment selects it; tools are presented in a panel or inspector.
 public struct ClipEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -26,6 +28,7 @@ public struct ClipEditorView: View {
     @State private var activeProjectID: UUID?
     @State private var activeToolCategory: EditorToolCategory? = nil
     @State private var coordinator = CompositionCoordinator()
+    @State private var trackViewportSession = EditorTrackViewportSession()
     @State private var draftStore  = DraftStore()
     @State private var lastSavedProjectVersion: String?
     private let onExport: ((Data, URL, UIImage) -> Void)?
@@ -434,6 +437,7 @@ public struct ClipEditorView: View {
         ZStack(alignment: .topTrailing) {
             TrackEditorRepresentable(
                 store: store,
+                viewportSession: trackViewportSession,
                 timeline: store.timeline,
                 refreshToken: trackRefreshToken,
                 onEmptyTrackAdd: handleEmptyTrackAdd
@@ -1065,6 +1069,7 @@ public struct ClipEditorView: View {
 /// Embeds ClipEditorViewController (UIKit) into SwiftUI.
 struct TrackEditorRepresentable: UIViewControllerRepresentable {
     var store: EditorStore
+    var viewportSession: EditorTrackViewportSession
     /// Passed by value so SwiftUI observes external timeline replacements
     /// (for example an Agent batch) and calls updateUIViewController.
     var timeline: EditorTimeline
@@ -1074,7 +1079,7 @@ struct TrackEditorRepresentable: UIViewControllerRepresentable {
     var onEmptyTrackAdd: ((UUID, EditorTrack.Kind) -> Void)?
 
     func makeUIViewController(context: Context) -> ClipEditorViewController {
-        let vc = ClipEditorViewController(store: store)
+        let vc = ClipEditorViewController(store: store, viewportSession: viewportSession)
         vc.onEmptyTrackAdd = onEmptyTrackAdd
         return vc
     }
@@ -1082,6 +1087,10 @@ struct TrackEditorRepresentable: UIViewControllerRepresentable {
     func updateUIViewController(_ vc: ClipEditorViewController, context: Context) {
         vc.onEmptyTrackAdd = onEmptyTrackAdd
         vc.apply(timeline: timeline, selection: store.selection)
+    }
+
+    static func dismantleUIViewController(_ vc: ClipEditorViewController, coordinator: ()) {
+        vc.prepareForRemoval()
     }
 }
 #endif

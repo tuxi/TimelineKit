@@ -114,6 +114,11 @@ let package = Package(
             dependencies: ["TimelineKitUISharedViews", "TimelineKitRender"]
         ),
         .testTarget(
+            name: "TimelineKitUIiOSTests",
+            dependencies: ["TimelineKitUIiOS", "TimelineKitUIShared", "TimelineKitUISharedViews"],
+            exclude: ["project.yml"]
+        ),
+        .testTarget(
             name: "TimelineKitUIMacTests",
             dependencies: ["TimelineKitUIMac", "TimelineKitUISharedViews", "TimelineKitRender"]
         ),

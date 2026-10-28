@@ -92,6 +92,7 @@ final class TrackCanvasView: UIView {
     private var trackRows: [UUID: TrackRowView] = [:]
     private var playheadLayer: CALayer!
     private var lastViewportWidth: CGFloat = 0
+    private var didFitInitialZoom = false
     private var reorderContentWidth: CGFloat?
 
     /// Transition badges: keyed by "leadingID–trailingID" string for fast lookup.
@@ -162,12 +163,13 @@ final class TrackCanvasView: UIView {
         let contentDuration = Self.contentDuration(for: timeline)
         // V5.1 BUG 2: 空 timeline 走默认 pps，避免 fittedPPS 把 duration=0 膨胀为 0.1s
         // 导致 availableWidth/0.1 算出数千 pps，新增素材瞬间生成海量缩略图。
-        if currentPixelsPerSecond == Self.minPixelsPerSecond {
+        if !didFitInitialZoom {
             if contentDuration < 0.5 {
                 currentPixelsPerSecond = Self.defaultPixelsPerSecond
             } else {
                 currentPixelsPerSecond = TrackLayout.fittedPPS(duration: contentDuration, availableWidth: availableWidth)
             }
+            didFitInitialZoom = true
         }
         layout = TrackLayout(duration: contentDuration, pixelsPerSecond: currentPixelsPerSecond)
         applyLayout(timeline: timeline)
@@ -208,6 +210,20 @@ final class TrackCanvasView: UIView {
 
     func updateSelection(ids: Set<UUID>) {
         for (_, row) in trackRows { row.updateSelection(ids: ids) }
+    }
+
+    /// Let existing cancellation handlers revert live trim previews and remove
+    /// reorder/drag overlays before their coordinate system changes.
+    func cancelInteractionsForViewportChange() {
+        func cancel(in view: UIView) {
+            for recognizer in view.gestureRecognizers ?? []
+                where recognizer.state == .began || recognizer.state == .changed {
+                recognizer.isEnabled = false
+                recognizer.isEnabled = true
+            }
+            for child in view.subviews { cancel(in: child) }
+        }
+        cancel(in: self)
     }
 
     /// Briefly flashes a yellow border around the given segment blocks.

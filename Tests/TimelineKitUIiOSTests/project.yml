@@ -1,0 +1,40 @@
+# Focused iOS logic-test harness. The aggregate Package scheme also builds the
+# macOS CLI executables, so use this harness for UIKit lifecycle regressions.
+# Set TIMELINEKIT_PACKAGE_PATH to the repository's absolute path, then generate
+# into an existing temporary directory with xcodegen --spec ... --project ...
+name: TimelineKitViewportHarness
+options:
+  deploymentTarget:
+    iOS: "18.6"
+packages:
+  TimelineKit:
+    path: ${TIMELINEKIT_PACKAGE_PATH}
+targets:
+  TimelineKitUIiOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: .
+        excludes:
+          - project.yml
+    dependencies:
+      - package: TimelineKit
+        product: TimelineKitUIiOS
+      - package: TimelineKit
+        product: TimelineKitUIShared
+      - package: TimelineKit
+        product: TimelineKitUISharedViews
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: org.timelinekit.TrackViewportTests
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "6.0"
+schemes:
+  TimelineKitViewport:
+    build:
+      targets:
+        TimelineKitUIiOSTests: [test]
+    test:
+      targets:
+        - TimelineKitUIiOSTests

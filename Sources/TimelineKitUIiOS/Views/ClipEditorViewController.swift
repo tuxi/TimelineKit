@@ -3,6 +3,7 @@ import UIKit
 import TimelineKitCore
 import TimelineKitRender
 import TimelineKitUIShared
+import TimelineKitUISharedViews
 
 /// UIKit root view controller for the clip editor's track area.
 /// Owns the scroll view, canvas, and all gesture recognizers.
@@ -19,6 +20,17 @@ public final class ClipEditorViewController: UIViewController {
     private var canvas: TrackCanvasView!
     private var labelsView: TrackLabelsView!
     private var didInitialLayout = false
+    private let viewportSession: EditorTrackViewportSession
+    private var lastViewportSize: CGSize = .zero
+    private var isUpdatingViewport = false
+    // UIScrollView quantizes offsets to physical pixels. Preserve the intended
+    // time after a programmatic restore until the user moves or zooms again.
+    private var restoredAnchorTime: Double?
+    private var restoredOffsetX: CGFloat?
+    private var restoredPixelsPerSecond: CGFloat?
+    #if DEBUG
+    private let diagnosticID = UUID()
+    #endif
 
     /// Guards against re-entrant scroll sync between canvas and labels scroll views.
     private var isSyncingScroll = false
@@ -44,11 +56,17 @@ public final class ClipEditorViewController: UIViewController {
 
     // MARK: - Init
 
-    public init(store: EditorStore) {
+    public convenience init(store: EditorStore) {
+        self.init(store: store, viewportSession: EditorTrackViewportSession())
+    }
+
+    init(store: EditorStore, viewportSession: EditorTrackViewportSession) {
         self.store     = store
         self.timeline  = store.timeline
         self.selection = store.selection
+        self.viewportSession = viewportSession
         super.init(nibName: nil, bundle: nil)
+        viewportSession.attach(self)
     }
 
     @available(*, unavailable)
@@ -63,33 +81,66 @@ public final class ClipEditorViewController: UIViewController {
         setupScrollView()
         setupCanvas()
         setupGestureRecognizers()
+        labelsView.setExpanded(viewportSession.labelsExpanded, animated: false)
     }
 
     // MARK: - Public API (called from SwiftUI representable)
 
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        // Update content insets on every layout so playhead stays centered after rotation.
+        guard viewportSession.owns(self),
+              scrollView.bounds.width > 0, scrollView.bounds.height > 0,
+              !isUpdatingViewport else { return }
+        let size = scrollView.bounds.size
+        guard !didInitialLayout || size != lastViewportSize else { return }
+        let saved = viewportSession.snapshot.flatMap { $0.timelineID == timeline.id ? $0 : nil }
+        isUpdatingViewport = true
+        cancelViewportInteractions()
         updateScrollInsets()
-        canvas.updateViewportWidth(scrollView.bounds.width)
-        guard !didInitialLayout else { return }
-        didInitialLayout = true
-        canvas.configure(timeline: timeline, availableWidth: scrollView.bounds.width)
-        labelsView.configure(tracks: timeline.tracks)
-        // v4: sync labels scroll view contentSize to match canvas content height,
-        // then align initial vertical offset. Both scroll views share the same
-        // contentInset (none) so offset equality means row alignment.
+        if !didInitialLayout {
+            canvas.configure(timeline: timeline, availableWidth: size.width)
+            if let saved {
+                canvas.zoom(to: saved.pixelsPerSecond, playheadTime: selection.playheadTime)
+            }
+            labelsView.configure(tracks: timeline.tracks)
+            didInitialLayout = true
+            snapFeedback.prepare()
+            lightFeedback.prepare()
+        } else {
+            canvas.updateViewportWidth(size.width)
+        }
         labelsView.syncContentSize(with: scrollView.contentSize.height)
+        if let saved {
+            scrollView.contentOffset = saved.restoredOffset(
+                layout: canvas.layout, viewportSize: size, contentSize: scrollView.contentSize
+            )
+        }
+        if saved == nil || store.isPlaying {
+            scrollToPlayhead(time: selection.playheadTime, animated: false)
+        }
+        canvas.updatePlayhead(time: selection.playheadTime)
+        canvas.updateSelection(ids: selection.selectedSegmentIDs)
         syncLabelScrollOffset()
-        scrollToPlayhead(time: selection.playheadTime, animated: false)
-        syncLabelScrollOffset()
-        snapFeedback.prepare()
-        lightFeedback.prepare()
+        lastViewportSize = size
+        restoredAnchorTime = saved == nil || store.isPlaying ? selection.playheadTime : saved?.anchorTime
+        restoredOffsetX = scrollView.contentOffset.x
+        restoredPixelsPerSecond = canvas.currentPixelsPerSecond
+        isUpdatingViewport = false
+        saveViewport()
+        reportViewport("layout")
     }
 
     public func apply(timeline: EditorTimeline, selection: SelectionState) {
+        guard viewportSession.owns(self) else { return }
         let structural = hasStructuralChange(from: self.timeline, to: timeline)
         let tracksAdded = timeline.tracks.count > self.timeline.tracks.count
+        // SwiftUI can update before the first nonzero layout. Configure once
+        // the real viewport is available instead of fitting zoom to zero width.
+        guard didInitialLayout else {
+            self.timeline = timeline
+            self.selection = selection
+            return
+        }
         // Detect newly-appeared segments (e.g. split inserts a new half, photo picker
         // adds a clip) so the canvas can briefly flash them as feedback.
         let appearedSegmentIDs: Set<UUID> = {
@@ -127,6 +178,72 @@ public final class ClipEditorViewController: UIViewController {
         if store.isPlaying && !isScrollScrubbing {
             scrollToPlayhead(time: selection.playheadTime, animated: false)
         }
+        saveViewport()
+    }
+
+    /// Called both before another layout branch claims the session and from
+    /// representable dismantling. Late teardown is intentionally a no-op.
+    func prepareForRemoval() {
+        guard viewportSession.owns(self) else { return }
+        saveViewport()
+        if isViewLoaded {
+            isUpdatingViewport = true
+            cancelViewportInteractions()
+            isUpdatingViewport = false
+            saveViewport()
+        }
+        reportViewport("detach")
+        viewportSession.detach(self)
+    }
+
+    private func reportViewport(_ event: String) {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-TimelineKitViewportDiagnostics"),
+              let snapshot = viewportSession.snapshot else { return }
+        let line = "[TimelineKitViewport] \(event) controller=\(diagnosticID) size=\(lastViewportSize) anchor=\(snapshot.anchorTime) pps=\(snapshot.pixelsPerSecond) y=\(snapshot.verticalOffset) playhead=\(selection.playheadTime)\n"
+        // File output is useful when Device Hub doesn't forward the app's
+        // console. It is explicitly opt-in and contains only viewport metrics.
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("timelinekit-viewport-diagnostics.log")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(line.utf8))
+        }
+        FileHandle.standardError.write(Data(line.utf8))
+        #endif
+    }
+
+    private func saveViewport() {
+        guard viewportSession.owns(self), didInitialLayout, !isUpdatingViewport,
+              scrollView.bounds.size == lastViewportSize else { return }
+        if restoredOffsetX != scrollView.contentOffset.x
+            || restoredPixelsPerSecond != canvas.currentPixelsPerSecond {
+            restoredAnchorTime = nil
+        }
+        viewportSession.snapshot = TimelineViewportSnapshot(
+            timelineID: timeline.id, layout: canvas.layout,
+            contentOffset: scrollView.contentOffset, viewportWidth: lastViewportSize.width,
+            preservingAnchorTime: restoredAnchorTime
+        )
+        viewportSession.labelsExpanded = labelsView.isExpanded
+    }
+
+    private func cancelViewportInteractions() {
+        canvas.cancelInteractionsForViewportChange()
+        for recognizer in scrollView.gestureRecognizers ?? []
+            where recognizer.state == .began || recognizer.state == .changed {
+            recognizer.isEnabled = false
+            recognizer.isEnabled = true
+        }
+        // Also stop a decelerating scrub before programmatically restoring an
+        // offset. Otherwise scrollViewDidScroll would seek with new geometry.
+        scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+        if isScrollScrubbing { finishScrollScrub() }
+        store.coordinatorPlayer?.currentItem?.preferredMaximumResolution = .zero
     }
 
     /// Returns true only when tracks or segments are added/removed/reordered —
@@ -278,6 +395,7 @@ public final class ClipEditorViewController: UIViewController {
     /// Direct playhead drag on ruler (spec: ±20pt around playhead line).
     /// Throttled to 33ms, pauses playback while scrubbing, snaps to segment edges.
     @objc private func handlePlayheadPan(_ gr: UIPanGestureRecognizer) {
+        guard viewportSession.owns(self) else { return }
         switch gr.state {
         case .began:
             scrubWasPlaying = store.isPlaying
@@ -304,6 +422,7 @@ public final class ClipEditorViewController: UIViewController {
     }
 
     @objc private func handleTap(_ gr: UITapGestureRecognizer) {
+        guard viewportSession.owns(self) else { return }
         let point = gr.location(in: canvas)
         // v4: header controls moved to TrackLabelsView sidebar — canvas taps
         // are always segment taps (or deselect).
@@ -317,6 +436,7 @@ public final class ClipEditorViewController: UIViewController {
 
     /// Pinch zoom — anchor follows the pinch center (midpoint between two fingers).
     @objc private func handlePinch(_ gr: UIPinchGestureRecognizer) {
+        guard viewportSession.owns(self), !isUpdatingViewport else { return }
         switch gr.state {
         case .began:
             pinchStartPPS      = canvas.currentPixelsPerSecond
@@ -333,6 +453,7 @@ public final class ClipEditorViewController: UIViewController {
             let minX = -scrollView.contentInset.left
             let maxX = max(minX, scrollView.contentSize.width - scrollView.bounds.width + scrollView.contentInset.right)
             scrollView.contentOffset.x = min(max(targetOffsetX, minX), maxX)
+            saveViewport()
 
         default:
             break
@@ -412,7 +533,8 @@ public final class ClipEditorViewController: UIViewController {
 
     private func restoreResolution() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.store.coordinatorPlayer?.currentItem?.preferredMaximumResolution = .zero
+            guard let self, self.viewportSession.owns(self) else { return }
+            self.store.coordinatorPlayer?.currentItem?.preferredMaximumResolution = .zero
         }
     }
 }
@@ -421,6 +543,7 @@ public final class ClipEditorViewController: UIViewController {
 
 extension ClipEditorViewController: UIScrollViewDelegate {
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard viewportSession.owns(self), !isUpdatingViewport else { return }
         // Only respond to canvas scrollView drags (not labels scrollView).
         guard scrollView === self.scrollView else { return }
         isScrollScrubbing = true
@@ -431,6 +554,8 @@ extension ClipEditorViewController: UIScrollViewDelegate {
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard viewportSession.owns(self), !isUpdatingViewport,
+              didInitialLayout, self.scrollView.bounds.size == lastViewportSize else { return }
         // v4: bidirectional native scroll sync — whichever side the user drags,
         // mirror contentOffset.y on the other. Guard against re-entrancy so
         // setting one offset doesn't recursively call back.
@@ -444,6 +569,7 @@ extension ClipEditorViewController: UIScrollViewDelegate {
             self.scrollView.contentOffset.y = scrollView.contentOffset.y
         }
         isSyncingScroll = false
+        saveViewport()
 
         // Horizontal scroll on canvas: scrub playhead
         guard scrollView === self.scrollView, isScrollScrubbing else { return }
@@ -467,9 +593,14 @@ extension ClipEditorViewController: UIScrollViewDelegate {
     }
 
     private func finishScrollScrub() {
+        guard isScrollScrubbing else { return }
         isScrollScrubbing = false
-        if scrubWasPlaying { store.play() }
+        let shouldResume = scrubWasPlaying
+        scrubWasPlaying = false
+        if shouldResume { store.play() }
         restoreResolution()
+        saveViewport()
+        reportViewport("scrub-end")
     }
 }
 
