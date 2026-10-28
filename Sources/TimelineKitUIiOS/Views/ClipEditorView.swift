@@ -108,6 +108,7 @@ public struct ClipEditorView: View {
 
     @State private var showAddMediaPicker = false
     @State private var showFileImporter = false
+    @State private var showAudioTools = false
     @State private var isMediaDropTargeted = false
     @State private var showInspector = false
     @State private var isWorkspaceInspectorCollapsed = false
@@ -252,6 +253,18 @@ public struct ClipEditorView: View {
 
     private func pasteSegment() {
         store.pasteSegment(after: store.selection.singleSelectedID)
+    }
+
+    private func addTextAtPlayhead() {
+        guard store.createNewTextSegment() != nil else { return }
+        activeToolCategory = .text
+        inspectorTab = .text
+    }
+
+    private func addSubtitleAtPlayhead() {
+        guard store.createNewSubtitleSegment() != nil else { return }
+        activeToolCategory = .text
+        inspectorTab = .text
     }
 
     // MARK: - Stacked (phone) layout
@@ -984,6 +997,14 @@ public struct ClipEditorView: View {
                 onPersistenceError?(error)
             }
         }
+        .sheet(isPresented: $showAudioTools) {
+            AudioSecondaryPanel(
+                store: store,
+                onDismiss: { showAudioTools = false }
+            )
+            .presentationDetents([.height(140)])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: - Observers & Toolbar
@@ -1097,8 +1118,30 @@ public struct ClipEditorView: View {
                     } label: {
                         Label("文件", systemImage: "folder")
                     }
+
+                    Divider()
+
+                    Button {
+                        showAudioTools = true
+                    } label: {
+                        Label("音频", systemImage: "waveform")
+                    }
+
+                    Divider()
+
+                    Button {
+                        addTextAtPlayhead()
+                    } label: {
+                        Label("文字", systemImage: "textformat")
+                    }
+
+                    Button {
+                        addSubtitleAtPlayhead()
+                    } label: {
+                        Label("字幕", systemImage: "text.bubble")
+                    }
                 } label: {
-                    Label("导入", systemImage: "plus.rectangle.on.rectangle")
+                    Label("添加", systemImage: "plus")
                 }
 
                 Button {
