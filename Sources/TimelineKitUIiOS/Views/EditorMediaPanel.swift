@@ -2,6 +2,7 @@
 import SwiftUI
 import AVFoundation
 import UIKit
+import TimelineKitRender
 
 /// A library media item shown in the material browser.
 struct EditorBrowserMediaItem: Identifiable, Equatable {
@@ -30,7 +31,7 @@ struct EditorBrowserMediaGroup: Equatable {
 /// import and creation actions. Asset thumbnails and canvas preview land in P2.2.
 struct EditorMediaPanel: View {
     @Binding var isCollapsed: Bool
-    var width: CGFloat = 220
+    var width: CGFloat? = 220
     var onPhotos: () -> Void
     var onFiles: () -> Void
     var onAudioTools: () -> Void
@@ -445,17 +446,28 @@ private struct BrowserMediaCard: View {
 private struct BrowserMediaThumbnail: View {
     let item: EditorBrowserMediaItem
 
+    @State private var image: UIImage?
+
     var body: some View {
         ZStack {
             Color.black
 
-            Image(systemName: icon)
-                .font(.system(size: 20, weight: .light))
-                .foregroundStyle(.white.opacity(0.55))
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .light))
+                    .foregroundStyle(.white.opacity(0.55))
+            }
         }
         .frame(maxWidth: .infinity)
         .frame(height: 56)
         .clipShape(RoundedRectangle(cornerRadius: 6))
+        .task(id: item.id) {
+            await loadThumbnail()
+        }
     }
 
     private var icon: String {
@@ -463,6 +475,28 @@ private struct BrowserMediaThumbnail: View {
         case .image: return "photo"
         case .video: return "film"
         case .audio: return "waveform"
+        }
+    }
+
+    @MainActor
+    private func loadThumbnail() async {
+        image = nil
+
+        switch item.kind {
+        case .image, .video:
+            let isImage = item.kind == .image
+            let size = CGSize(width: 220, height: 112)
+            if let cgImage = await ThumbnailProvider.shared.thumbnail(
+                for: item.url,
+                isImage: isImage,
+                at: 0,
+                size: size
+            ) {
+                image = UIImage(cgImage: cgImage)
+            }
+
+        case .audio:
+            break
         }
     }
 }

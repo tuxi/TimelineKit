@@ -500,7 +500,7 @@ public struct ClipEditorView: View {
 
     private func mediaBrowserPanel(
         isCollapsed: Binding<Bool>,
-        width: CGFloat = 220,
+        width: CGFloat? = 220,
         onClose: (() -> Void)? = nil
     ) -> some View {
         EditorMediaPanel(
@@ -1206,7 +1206,7 @@ public struct ClipEditorView: View {
         .sheet(isPresented: $showMediaBrowser) {
             mediaBrowserPanel(
                 isCollapsed: .constant(false),
-                width: 320,
+                width: nil,
                 onClose: {
                     showMediaBrowser = false
                     exitBrowserPreview()
