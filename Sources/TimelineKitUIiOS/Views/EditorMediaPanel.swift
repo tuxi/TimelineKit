@@ -45,6 +45,7 @@ struct EditorMediaPanel: View {
 
     @State private var selectedTab: Tab = .media
     @State private var isTargeted = false
+    @State private var searchText = ""
 
     private enum Tab: String, CaseIterable, Identifiable {
         case media = "媒体"
@@ -153,8 +154,31 @@ struct EditorMediaPanel: View {
         .padding(.vertical, 8)
     }
 
+    private var filteredMediaGroups: [EditorBrowserMediaGroup] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return mediaGroups }
+
+        return mediaGroups.compactMap { group in
+            let items = group.items.filter {
+                $0.title.localizedCaseInsensitiveContains(query)
+            }
+            guard !items.isEmpty else { return nil }
+            return EditorBrowserMediaGroup(date: group.date, items: items)
+        }
+    }
+
     private var mediaContent: some View {
         VStack(alignment: .leading, spacing: 10) {
+            TextField("搜索素材", text: $searchText)
+                .font(.system(size: 11))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(Color.white.opacity(0.06))
+                )
+
             Text("最近素材")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.5))
@@ -165,9 +189,15 @@ struct EditorMediaPanel: View {
                     .foregroundStyle(.white.opacity(0.35))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 8)
+            } else if filteredMediaGroups.isEmpty {
+                Text("没有匹配素材")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.35))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
             } else {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(mediaGroups, id: \.date) { group in
+                    ForEach(filteredMediaGroups, id: \.date) { group in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(groupTitle(group.date))
                                 .font(.system(size: 10, weight: .semibold))
