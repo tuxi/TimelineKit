@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import AVKit
 import CoreText
 import TimelineKitCore
 import TimelineKitRender
@@ -176,6 +177,30 @@ public struct EditorPreviewView: View {
 
 #if canImport(UIKit)
 private typealias BrowserPreviewImage = UIImage
+
+private struct AVPlayerPreviewViewControllerRepresentable: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = false
+        controller.videoGravity = .resizeAspect
+        controller.allowsPictureInPicturePlayback = false
+        return controller
+    }
+
+    func updateUIViewController(
+        _ uiViewController: AVPlayerViewController,
+        context: Context
+    ) {
+        if uiViewController.player !== player {
+            uiViewController.player = player
+        }
+        uiViewController.showsPlaybackControls = false
+        uiViewController.videoGravity = .resizeAspect
+    }
+}
 #else
 private typealias BrowserPreviewImage = NSImage
 #endif
@@ -320,7 +345,11 @@ private struct EditorBrowserAssetPreview: View {
         case .video:
             ZStack {
                 if let player {
+                    #if canImport(UIKit)
+                    AVPlayerPreviewViewControllerRepresentable(player: player)
+                    #else
                     AVPlayerRepresentable(player: player)
+                    #endif
                 }
 
                 if asset.kind == .video,
