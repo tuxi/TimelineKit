@@ -47,7 +47,7 @@ public struct EditorCanvasSurface: View {
         ZStack {
             switch source {
             case .browserAsset(let asset):
-                EditorBrowserAssetPreview(
+                BrowserAssetCanvasRenderer(
                     asset: asset,
                     onExit: onExitBrowserPreview
                 )
@@ -262,7 +262,7 @@ private struct AVPlayerPreviewViewControllerRepresentable: UIViewControllerRepre
 private typealias BrowserPreviewImage = NSImage
 #endif
 
-private struct EditorBrowserAssetPreview: View {
+struct BrowserAssetCanvasRenderer: View {
     let asset: EditorPreviewAsset
     let onExit: (() -> Void)?
 
@@ -400,24 +400,17 @@ private struct EditorBrowserAssetPreview: View {
             }
 
         case .video:
-            ZStack {
-                if let player {
-                    #if canImport(UIKit)
-                    AVPlayerPreviewViewControllerRepresentable(player: player)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    #else
-                    AVPlayerRepresentable(player: player)
-                    #endif
-                }
-
-                if asset.kind == .video,
-                   let image,
-                   !isPlaying,
-                   currentTime == 0 {
-                    platformImageView(image)
-                }
+            if let player {
+                #if canImport(UIKit)
+                AVPlayerPreviewViewControllerRepresentable(player: player)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                #else
+                AVPlayerRepresentable(player: player)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                #endif
+            } else {
+                Color.black
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         case .audio:
             VStack(spacing: 10) {
@@ -484,18 +477,6 @@ private struct EditorBrowserAssetPreview: View {
             }
 
         case .video:
-            if let cgImage = await ThumbnailProvider.shared.thumbnail(
-                for: asset.url,
-                isImage: false,
-                at: 0,
-                size: CGSize(width: 1280, height: 720)
-            ) {
-                #if canImport(UIKit)
-                image = UIImage(cgImage: cgImage)
-                #else
-                image = NSImage(cgImage: cgImage, size: .zero)
-                #endif
-            }
             configurePlayer()
 
         case .audio:
