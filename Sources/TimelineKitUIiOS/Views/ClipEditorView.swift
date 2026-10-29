@@ -844,12 +844,14 @@ public struct ClipEditorView: View {
     }
 
     private var previewContent: some View {
-        // Browser canvas preview is temporarily disabled while the
-        // Main Thread Checker violation is being investigated.
         EditorPreviewView(
             store: store,
             compositionPlayer: coordinator.player,
-            timelinePreviewView: coordinator.timelinePreviewView
+            timelinePreviewView: coordinator.timelinePreviewView,
+            previewAsset: browserPreviewAsset,
+            onExitPreview: {
+                exitBrowserPreview()
+            }
         )
     }
 
