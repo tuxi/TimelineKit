@@ -1746,6 +1746,18 @@ struct TrackEditorRepresentable: UIViewControllerRepresentable {
     var onEmptyTrackAdd: ((UUID, EditorTrack.Kind) -> Void)?
     @Binding var controller: ClipEditorViewController?
 
+    final class Coordinator {
+        var onDismantle: (() -> Void)?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        let coordinator = Coordinator()
+        coordinator.onDismantle = {
+            controller = nil
+        }
+        return coordinator
+    }
+
     func makeUIViewController(context: Context) -> ClipEditorViewController {
         let vc = ClipEditorViewController(store: store, viewportSession: viewportSession)
         vc.onEmptyTrackAdd = onEmptyTrackAdd
@@ -1760,8 +1772,12 @@ struct TrackEditorRepresentable: UIViewControllerRepresentable {
         vc.apply(timeline: timeline, selection: store.selection)
     }
 
-    static func dismantleUIViewController(_ vc: ClipEditorViewController, coordinator: ()) {
+    static func dismantleUIViewController(
+        _ vc: ClipEditorViewController,
+        coordinator: Coordinator
+    ) {
         vc.prepareForRemoval()
+        coordinator.onDismantle?()
     }
 }
 #endif

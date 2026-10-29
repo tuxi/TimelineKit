@@ -182,8 +182,13 @@ public final class ClipEditorViewController: UIViewController {
     }
 
     /// Called both before another layout branch claims the session and from
-    /// representable dismantling. Late teardown is intentionally a no-op.
+    /// representable dismantling. The old view must always stop rendering even
+    /// when a replacement controller already owns the viewport session.
     func prepareForRemoval() {
+        if isViewLoaded {
+            detachViewsForTeardown()
+        }
+
         guard viewportSession.owns(self) else { return }
         saveViewport()
         if isViewLoaded {
@@ -194,6 +199,20 @@ public final class ClipEditorViewController: UIViewController {
         }
         reportViewport("detach")
         viewportSession.detach(self)
+    }
+
+    private func detachViewsForTeardown() {
+        isUpdatingViewport = true
+        cancelViewportInteractions()
+        isUpdatingViewport = false
+
+        scrollView.delegate = nil
+        labelsView.scrollView.delegate = nil
+        canvas.prepareForRemoval()
+
+        scrollView.isHidden = true
+        labelsView.isHidden = true
+        view.subviews.forEach { $0.layer.removeAllAnimations() }
     }
 
     private func reportViewport(_ event: String) {

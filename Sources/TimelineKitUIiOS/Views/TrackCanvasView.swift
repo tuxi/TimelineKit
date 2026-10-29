@@ -212,6 +212,16 @@ final class TrackCanvasView: UIView {
         for (_, row) in trackRows { row.updateSelection(ids: ids) }
     }
 
+    /// Stops all tile/waveform rendering before the owning scroll view is torn down.
+    func prepareForRemoval() {
+        cancelInteractionsForViewportChange()
+        for row in trackRows.values {
+            row.prepareForRemoval()
+        }
+        layer.removeAllAnimations()
+        isHidden = true
+    }
+
     /// Let existing cancellation handlers revert live trim previews and remove
     /// reorder/drag overlays before their coordinate system changes.
     func cancelInteractionsForViewportChange() {
@@ -819,6 +829,14 @@ final class TrackRowView: UIView {
 
     func updateSelection(ids: Set<UUID>) {
         for (id, view) in segmentViews { view.isSelected = ids.contains(id) }
+    }
+
+    func prepareForRemoval() {
+        for view in segmentViews.values {
+            view.prepareForRemoval()
+        }
+        layer.removeAllAnimations()
+        isHidden = true
     }
 
     /// Applies a duration loaded asynchronously after row construction.
@@ -1729,6 +1747,18 @@ final class SegmentBlockView: UIView {
         setNeedsLayout()
     }
 
+    func prepareForRemoval() {
+        leadingHandle?.removeFromSuperview()
+        leadingHandle = nil
+        trailingHandle?.removeFromSuperview()
+        trailingHandle = nil
+        thumbnailStrip.prepareForRemoval()
+        waveformStrip.prepareForRemoval()
+        textLabel.text = nil
+        layer.removeAllAnimations()
+        isHidden = true
+    }
+
     // MARK: - Trim Handles
 
     private func addTrimHandle(isLeading: Bool) {
@@ -2156,6 +2186,15 @@ final class ThumbnailStripView: UIView {
     func cancelLoading() {
         // CATiledLayer 自身按需绘制，无显式 Task 列表需要取消；调用点保留兼容。
     }
+
+    func prepareForRemoval() {
+        lastAsset = nil
+        lastSegment = nil
+        tiled.purgeLocalCache()
+        tiled.contents = nil
+        layer.removeAllAnimations()
+        isHidden = true
+    }
 }
 
 /// CATiledLayer 后备实现。绘制在后台线程，状态读写通过 OSAllocatedUnfairLock 同步。
@@ -2385,6 +2424,13 @@ final class WaveformStripView: UIView {
     func cancelLoading() {
         loadingTask?.cancel()
         loadingTask = nil
+    }
+
+    func prepareForRemoval() {
+        cancelLoading()
+        shapeLayer.path = nil
+        layer.removeAllAnimations()
+        isHidden = true
     }
 
     // MARK: - Path building
