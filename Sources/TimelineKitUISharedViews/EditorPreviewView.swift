@@ -266,7 +266,8 @@ struct BrowserAssetCanvasRenderer: View {
     let asset: EditorPreviewAsset
     let onExit: (() -> Void)?
 
-    @State private var player: AVPlayer?
+    @State private var player = AVPlayer()
+    @State private var playItem: AVPlayerItem?
     @State private var image: BrowserPreviewImage?
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
@@ -296,7 +297,7 @@ struct BrowserAssetCanvasRenderer: View {
                     Spacer(minLength: 8)
 
                     Button {
-                        player?.pause()
+                        player.pause()
                         onExit?()
                     } label: {
                         Label("返回时间线", systemImage: "arrow.uturn.backward")
@@ -383,8 +384,9 @@ struct BrowserAssetCanvasRenderer: View {
         }
         .onDisappear {
             removeTimeObserver()
-            player?.pause()
-            player = nil
+            player.pause()
+            player.replaceCurrentItem(with: nil)
+            playItem = nil
         }
     }
 
@@ -401,7 +403,7 @@ struct BrowserAssetCanvasRenderer: View {
 
         case .video:
             GeometryReader { geo in
-                if let player {
+                if playItem != nil {
                     #if canImport(UIKit)
                     AVPlayerPreviewViewControllerRepresentable(player: player)
                         .frame(
@@ -459,9 +461,9 @@ struct BrowserAssetCanvasRenderer: View {
 
     @MainActor
     private func loadPreview() async {
-        removeTimeObserver()
-        player?.pause()
-        player = nil
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        playItem = nil
         image = nil
         isPlaying = false
         isScrubbing = false
@@ -484,26 +486,26 @@ struct BrowserAssetCanvasRenderer: View {
                 #endif
             }
 
-        case .video:
-            configurePlayer()
-
-        case .audio:
+        case .video, .audio:
             configurePlayer()
         }
     }
 
     private func configurePlayer() {
-        let newPlayer = AVPlayer(url: asset.url)
-        newPlayer.pause()
-        player = newPlayer
-        if duration <= 0 {
-            duration = max(0, newPlayer.currentItem?.duration.seconds ?? 0)
+        player.pause()
+        let item = AVPlayerItem(url: asset.url)
+        playItem = item
+        player.replaceCurrentItem(with: item)
+
+        if duration <= 0, let itemDuration = playItem?.duration,
+           itemDuration.seconds.isFinite {
+            duration = max(0, itemDuration.seconds)
         }
-        installTimeObserver(for: newPlayer)
+        installTimeObserverIfNeeded()
     }
 
     private func togglePlayback() {
-        guard let player else { return }
+        guard playItem != nil else { return }
         if player.rate > 0 {
             player.pause()
             isPlaying = false
@@ -517,7 +519,7 @@ struct BrowserAssetCanvasRenderer: View {
     }
 
     private func seekPreview(to seconds: Double) {
-        guard let player, duration > 0 else {
+        guard playItem != nil, duration > 0 else {
             currentTime = max(0, seconds)
             return
         }
@@ -534,16 +536,21 @@ struct BrowserAssetCanvasRenderer: View {
         if isEditing {
             isScrubbing = true
             wasPlayingBeforeScrub = isPlaying
-            player?.pause()
+            player.pause()
             isPlaying = false
         } else {
             isScrubbing = false
             if wasPlayingBeforeScrub {
-                player?.play()
+                player.play()
                 isPlaying = true
             }
             wasPlayingBeforeScrub = false
         }
+    }
+
+    private func installTimeObserverIfNeeded() {
+        guard timeObserver == nil else { return }
+        installTimeObserver(for: player)
     }
 
     private func installTimeObserver(for player: AVPlayer) {
@@ -565,7 +572,7 @@ struct BrowserAssetCanvasRenderer: View {
 
     private func removeTimeObserver() {
         if let timeObserver {
-            player?.removeTimeObserver(timeObserver)
+            player.removeTimeObserver(timeObserver)
             self.timeObserver = nil
         }
     }
