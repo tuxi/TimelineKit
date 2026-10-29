@@ -337,6 +337,7 @@ private struct EditorBrowserAssetPreview: View {
         }
     }
 
+    @MainActor
     private func loadAsset() async {
         removeTimeObserver()
         player?.pause()
@@ -412,11 +413,13 @@ private struct EditorBrowserAssetPreview: View {
             forInterval: interval,
             queue: .main
         ) { time in
-            guard !isScrubbing else { return }
-            currentTime = max(0, time.seconds)
-            if duration > 0, currentTime >= duration - 0.05 {
-                player.pause()
-                isPlaying = false
+            Task { @MainActor in
+                guard !isScrubbing else { return }
+                currentTime = max(0, time.seconds)
+                if duration > 0, currentTime >= duration - 0.05 {
+                    player.pause()
+                    isPlaying = false
+                }
             }
         }
     }

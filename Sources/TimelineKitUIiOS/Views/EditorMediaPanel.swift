@@ -446,6 +446,7 @@ private struct BrowserMediaThumbnail: View {
         }
     }
 
+    @MainActor
     private func loadThumbnail() async {
         image = nil
 
@@ -460,6 +461,7 @@ private struct BrowserMediaThumbnail: View {
             if let result = try? await generator.image(
                 at: CMTime(seconds: 0.1, preferredTimescale: 600)
             ) {
+                // Resume on the main actor before publishing SwiftUI state.
                 image = UIImage(cgImage: result.image)
             }
 
