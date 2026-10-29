@@ -28,19 +28,22 @@ public struct EditorCanvasSurface: View {
     /// TimelinePreviewView from CompositionCoordinator (set by umbrella layer).
     public var timelinePreviewView: TimelinePreviewView? = nil
     public var onExitBrowserPreview: (() -> Void)? = nil
+    public var onBrowserPlayerChange: ((AVPlayer?) -> Void)? = nil
 
     public init(
         store: EditorStore,
         source: EditorCanvasSource,
         compositionPlayer: AVPlayer? = nil,
         timelinePreviewView: TimelinePreviewView? = nil,
-        onExitBrowserPreview: (() -> Void)? = nil
+        onExitBrowserPreview: (() -> Void)? = nil,
+        onBrowserPlayerChange: ((AVPlayer?) -> Void)? = nil
     ) {
         self.store = store
         self.source = source
         self.compositionPlayer = compositionPlayer
         self.timelinePreviewView = timelinePreviewView
         self.onExitBrowserPreview = onExitBrowserPreview
+        self.onBrowserPlayerChange = onBrowserPlayerChange
     }
 
     public var body: some View {
@@ -49,7 +52,8 @@ public struct EditorCanvasSurface: View {
             case .browserAsset(let asset):
                 BrowserAssetCanvasRenderer(
                     asset: asset,
-                    onExit: onExitBrowserPreview
+                    onExit: onExitBrowserPreview,
+                    onPlayerChange: onBrowserPlayerChange
                 )
 
             case .timeline:
@@ -197,19 +201,22 @@ public struct EditorPreviewView: View {
     /// moving the timeline playhead.
     public var previewAsset: EditorPreviewAsset? = nil
     public var onExitPreview: (() -> Void)? = nil
+    public var onBrowserPlayerChange: ((AVPlayer?) -> Void)? = nil
 
     public init(
         store: EditorStore,
         compositionPlayer: AVPlayer? = nil,
         timelinePreviewView: TimelinePreviewView? = nil,
         previewAsset: EditorPreviewAsset? = nil,
-        onExitPreview: (() -> Void)? = nil
+        onExitPreview: (() -> Void)? = nil,
+        onBrowserPlayerChange: ((AVPlayer?) -> Void)? = nil
     ) {
         self.store = store
         self.compositionPlayer = compositionPlayer
         self.timelinePreviewView = timelinePreviewView
         self.previewAsset = previewAsset
         self.onExitPreview = onExitPreview
+        self.onBrowserPlayerChange = onBrowserPlayerChange
     }
 
     public var body: some View {
@@ -218,7 +225,8 @@ public struct EditorPreviewView: View {
             source: source,
             compositionPlayer: compositionPlayer,
             timelinePreviewView: timelinePreviewView,
-            onExitBrowserPreview: onExitPreview
+            onExitBrowserPreview: onExitPreview,
+            onBrowserPlayerChange: onBrowserPlayerChange
         )
     }
 
@@ -328,6 +336,7 @@ private typealias BrowserPreviewImage = NSImage
 struct BrowserAssetCanvasRenderer: View {
     let asset: EditorPreviewAsset
     let onExit: (() -> Void)?
+    var onPlayerChange: ((AVPlayer?) -> Void)? = nil
 
     @State private var player = AVPlayer()
     @State private var playItem: AVPlayerItem?
@@ -446,7 +455,11 @@ struct BrowserAssetCanvasRenderer: View {
         .task(id: asset.id) {
             await loadPreview()
         }
+        .onAppear {
+            onPlayerChange?(player)
+        }
         .onDisappear {
+            onPlayerChange?(nil)
             removeTimeObserver()
             player.pause()
             player.replaceCurrentItem(with: nil)

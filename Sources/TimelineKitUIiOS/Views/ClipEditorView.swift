@@ -114,6 +114,7 @@ public struct ClipEditorView: View {
     @State private var showMediaBrowser = false
     @State private var workspaceContentSize: CGSize = .zero
     @State private var browserPreviewAsset: EditorPreviewAsset?
+    @State private var browserPreviewPlayer: AVPlayer?
     @State private var selectedBrowserMediaID: UUID?
     @State private var trackController: ClipEditorViewController?
     @State private var browserPreviewTimelineTime: Double = 0
@@ -420,6 +421,8 @@ public struct ClipEditorView: View {
     ) {
         guard browserPreviewAsset != nil else { return }
 
+        browserPreviewPlayer?.pause()
+        browserPreviewPlayer = nil
         browserPreviewAsset = nil
         selectedBrowserMediaID = nil
 
@@ -488,6 +491,8 @@ public struct ClipEditorView: View {
             )
         }
 
+        browserPreviewPlayer?.pause()
+        browserPreviewPlayer = nil
         browserPreviewAsset = nil
         selectedBrowserMediaID = nil
         browserPreviewWasPlaying = false
@@ -969,6 +974,9 @@ public struct ClipEditorView: View {
             previewAsset: browserPreviewAsset,
             onExitPreview: {
                 exitBrowserPreview()
+            },
+            onBrowserPlayerChange: { player in
+                browserPreviewPlayer = player
             }
         )
     }
