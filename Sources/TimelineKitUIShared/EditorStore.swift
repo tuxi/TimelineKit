@@ -462,6 +462,11 @@ public final class EditorStore: @MainActor Identifiable {
 
             let segment = EditorSegment(id: segmentID, materialID: materialID, sourceRange: isVideo ? TimeRange(start: 0, duration: dur) : nil, targetRange: TimeRange(start: insertStart, duration: dur), speed: 1.0, content: isVideo ? .video(SegmentContent.VideoContent()) : .image(SegmentContent.ImageContent()))
             tl.tracks[ti].insert(segment)
+            if targetTrackID == nil, tl.tracks[ti].segments.count > 1 {
+                tl.removeOrphanedTransitions(
+                    for: tl.tracks[ti].segments.map(\.id)
+                )
+            }
             if tl.tracks[ti].pendingUserCreated {
                 tl.tracks[ti].pendingUserCreated = false
             }
