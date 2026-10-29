@@ -191,6 +191,16 @@ private struct BrowserVideoLayerRepresentable: UIViewRepresentable {
             uiView.player = player
         }
     }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        uiView: BrowserVideoLayerView,
+        context: Context
+    ) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions(
+            by: CGSize(width: 1, height: 1)
+        )
+    }
 }
 
 private final class BrowserVideoLayerView: UIView {
@@ -210,6 +220,11 @@ private final class BrowserVideoLayerView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         playerLayer.frame = bounds
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        setNeedsLayout()
     }
 }
 #else
