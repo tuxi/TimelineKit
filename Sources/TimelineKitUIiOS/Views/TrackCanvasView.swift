@@ -272,6 +272,14 @@ final class TrackCanvasView: UIView {
         return nil
     }
 
+    /// Resolves a point in canvas coordinates to the track row under it.
+    func trackID(at point: CGPoint) -> UUID? {
+        for (id, row) in trackRows where row.frame.contains(point) {
+            return id
+        }
+        return nil
+    }
+
     func addPlayheadGesture(_ gr: UIGestureRecognizer) {
         rulerView.addGestureRecognizer(gr)
     }

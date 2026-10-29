@@ -427,6 +427,15 @@ public final class ClipEditorViewController: UIViewController {
         }
     }
 
+    /// Resolves a SwiftUI drop location into a timeline time and track.
+    func dropTarget(at point: CGPoint) -> (time: Double, trackID: UUID?) {
+        let canvasPoint = view.convert(point, to: canvas)
+        return (
+            time: max(0, canvas.time(at: canvasPoint.x)),
+            trackID: canvas.trackID(at: canvasPoint)
+        )
+    }
+
     @objc private func handleTap(_ gr: UITapGestureRecognizer) {
         guard viewportSession.owns(self) else { return }
         let point = gr.location(in: canvas)

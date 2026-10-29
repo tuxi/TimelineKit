@@ -389,7 +389,12 @@ public final class EditorStore: @MainActor Identifiable {
 
     // MARK: - Media Import
 
-    @discardableResult public func addVisualSegment(localURL: URL, nativeDuration: Double?, targetTrackID: UUID? = nil) -> UUID? {
+    @discardableResult public func addVisualSegment(
+        localURL: URL,
+        nativeDuration: Double?,
+        startTime: Double? = nil,
+        targetTrackID: UUID? = nil
+    ) -> UUID? {
         let segmentID = UUID(); let playheadTime = selection.playheadTime
         // Pending automatic projects follow the first readable main visual.
         // Existing audio/text, overlays and later batch inserts do not consume
@@ -417,8 +422,44 @@ public final class EditorStore: @MainActor Identifiable {
             let isVideo = nativeDuration != nil
             let asset = EditorAsset(id: materialID, type: isVideo ? .video : .image, localURL: localURL, nativeDuration: nativeDuration)
             tl.materials[materialID] = asset
-            let insertStart = targetTrackID == nil ? (tl.tracks[ti].segments.last?.targetRange.end ?? 0) : playheadTime
             let dur = nativeDuration ?? 3.0
+            let insertStart: Double
+
+            if let startTime {
+                if targetTrackID != nil {
+                    insertStart = max(0, startTime)
+                } else {
+                    // Main track is contiguous. Snap an explicit drop to the
+                    // nearest cut and shift later clips right by the new duration.
+                    let dropTime = max(0, startTime)
+                    var cut = dropTime
+                    if let hit = tl.tracks[ti].segments.first(where: {
+                        $0.targetRange.start <= dropTime
+                            && dropTime <= $0.targetRange.end
+                    }) {
+                        let toStart = dropTime - hit.targetRange.start
+                        let toEnd = hit.targetRange.end - dropTime
+                        cut = toStart < toEnd
+                            ? hit.targetRange.start
+                            : hit.targetRange.end
+                    }
+
+                    for index in tl.tracks[ti].segments.indices
+                    where tl.tracks[ti].segments[index].targetRange.start >= cut - 1e-6 {
+                        let segment = tl.tracks[ti].segments[index]
+                        tl.tracks[ti].segments[index].targetRange = TimeRange(
+                            start: segment.targetRange.start + dur,
+                            duration: segment.targetRange.duration
+                        )
+                    }
+                    insertStart = cut
+                }
+            } else {
+                insertStart = targetTrackID == nil
+                    ? (tl.tracks[ti].segments.last?.targetRange.end ?? 0)
+                    : playheadTime
+            }
+
             let segment = EditorSegment(id: segmentID, materialID: materialID, sourceRange: isVideo ? TimeRange(start: 0, duration: dur) : nil, targetRange: TimeRange(start: insertStart, duration: dur), speed: 1.0, content: isVideo ? .video(SegmentContent.VideoContent()) : .image(SegmentContent.ImageContent()))
             tl.tracks[ti].insert(segment)
             if tl.tracks[ti].pendingUserCreated {

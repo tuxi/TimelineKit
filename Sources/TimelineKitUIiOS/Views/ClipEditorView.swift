@@ -113,6 +113,7 @@ public struct ClipEditorView: View {
     @State private var workspaceContentSize: CGSize = .zero
     @State private var browserPreviewAsset: EditorPreviewAsset?
     @State private var selectedBrowserMediaID: UUID?
+    @State private var trackController: ClipEditorViewController?
     @State private var browserPreviewTimelineTime: Double = 0
     @State private var browserPreviewWasPlaying = false
     @State private var isMediaDropTargeted = false
@@ -318,23 +319,58 @@ public struct ClipEditorView: View {
     }
 
     private func insertBrowserMedia(_ item: EditorBrowserMediaItem) {
+        insertBrowserMedia(item, at: nil)
+    }
+
+    private func insertBrowserMedia(
+        _ item: EditorBrowserMediaItem,
+        at location: CGPoint?
+    ) {
+        var dropTime: Double?
+        var targetTrackID: UUID?
+
+        if let location,
+           let target = trackController?.dropTarget(at: location) {
+            dropTime = target.time
+
+            if let trackID = target.trackID,
+               let track = store.timeline.track(id: trackID) {
+                switch item.kind {
+                case .audio:
+                    if track.kind == .audio {
+                        targetTrackID = trackID
+                    }
+                case .image, .video:
+                    if track.kind == .overlay {
+                        targetTrackID = trackID
+                    }
+                }
+            }
+        }
+
         let segmentID: UUID?
 
         switch item.kind {
         case .image:
             segmentID = store.addVisualSegment(
                 localURL: item.url,
-                nativeDuration: nil
+                nativeDuration: nil,
+                startTime: dropTime,
+                targetTrackID: targetTrackID
             )
         case .video:
             segmentID = store.addVisualSegment(
                 localURL: item.url,
-                nativeDuration: item.duration
+                nativeDuration: item.duration,
+                startTime: dropTime,
+                targetTrackID: targetTrackID
             )
         case .audio:
             segmentID = store.addAudioSegment(
                 localURL: item.url,
-                nativeDuration: max(item.duration ?? 0, 0.1)
+                nativeDuration: max(item.duration ?? 0, 0.1),
+                startTime: dropTime,
+                targetTrackID: targetTrackID
             )
         }
 
@@ -423,6 +459,10 @@ public struct ClipEditorView: View {
 
     private var mediaPanel: some View {
         mediaBrowserPanel(isCollapsed: $isMediaPanelCollapsed)
+    }
+
+    private var browserMediaItems: [EditorBrowserMediaItem] {
+        browserMediaGroups.flatMap(\.items)
     }
 
     private var browserMediaGroups: [EditorBrowserMediaGroup] {
@@ -924,7 +964,8 @@ public struct ClipEditorView: View {
                 viewportSession: trackViewportSession,
                 timeline: store.timeline,
                 refreshToken: trackRefreshToken,
-                onEmptyTrackAdd: handleEmptyTrackAdd
+                onEmptyTrackAdd: handleEmptyTrackAdd,
+                controller: $trackController
             )
             .frame(minHeight: resolvedMinHeight, maxHeight: .infinity)
 
@@ -950,10 +991,15 @@ public struct ClipEditorView: View {
                 .allowsHitTesting(false)
             }
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            guard !urls.isEmpty else { return false }
-            pendingVisualTrackID = nil
-            Task { await loadDroppedMediaURLs(urls) }
+        .dropDestination(for: URL.self) { urls, location in
+            guard let url = urls.first else { return false }
+
+            if let item = browserMediaItems.first(where: { $0.url == url }) {
+                insertBrowserMedia(item, at: location)
+            } else {
+                pendingVisualTrackID = nil
+                Task { await loadDroppedMediaURLs(urls) }
+            }
             return true
         } isTargeted: { isTargeted in
             isMediaDropTargeted = isTargeted
@@ -1700,10 +1746,14 @@ struct TrackEditorRepresentable: UIViewControllerRepresentable {
     /// runs for external timeline replacements.
     var refreshToken: Int
     var onEmptyTrackAdd: ((UUID, EditorTrack.Kind) -> Void)?
+    @Binding var controller: ClipEditorViewController?
 
     func makeUIViewController(context: Context) -> ClipEditorViewController {
         let vc = ClipEditorViewController(store: store, viewportSession: viewportSession)
         vc.onEmptyTrackAdd = onEmptyTrackAdd
+        DispatchQueue.main.async {
+            controller = vc
+        }
         return vc
     }
 
