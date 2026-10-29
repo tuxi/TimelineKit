@@ -1217,6 +1217,8 @@ public struct ClipEditorView: View {
                 maxHeight: .infinity,
                 alignment: .top
             )
+            .background(Color(white: 0.10))
+            .presentationBackground(Color(white: 0.10))
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }

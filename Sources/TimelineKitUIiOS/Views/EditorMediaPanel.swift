@@ -64,6 +64,7 @@ struct EditorMediaPanel: View {
             }
         }
         .background(Color(white: 0.10))
+        .environment(\.colorScheme, .dark)
     }
 
     private var expanded: some View {
