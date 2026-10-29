@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import AVKit
 import CoreText
 import TimelineKitCore
 import TimelineKitRender
@@ -177,54 +178,27 @@ public struct EditorPreviewView: View {
 #if canImport(UIKit)
 private typealias BrowserPreviewImage = UIImage
 
-private struct BrowserVideoLayerRepresentable: UIViewRepresentable {
+private struct AVPlayerPreviewViewControllerRepresentable: UIViewControllerRepresentable {
     let player: AVPlayer
 
-    func makeUIView(context: Context) -> BrowserVideoLayerView {
-        let view = BrowserVideoLayerView()
-        view.player = player
-        return view
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = false
+        controller.videoGravity = .resizeAspect
+        controller.allowsPictureInPicturePlayback = false
+        return controller
     }
 
-    func updateUIView(_ uiView: BrowserVideoLayerView, context: Context) {
-        if uiView.player !== player {
-            uiView.player = player
-        }
-    }
-
-    func sizeThatFits(
-        _ proposal: ProposedViewSize,
-        uiView: BrowserVideoLayerView,
+    func updateUIViewController(
+        _ uiViewController: AVPlayerViewController,
         context: Context
-    ) -> CGSize? {
-        proposal.replacingUnspecifiedDimensions(
-            by: CGSize(width: 1, height: 1)
-        )
-    }
-}
-
-private final class BrowserVideoLayerView: UIView {
-    override class var layerClass: AnyClass { AVPlayerLayer.self }
-
-    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
-
-    weak var player: AVPlayer? {
-        didSet {
-            guard oldValue !== player else { return }
-            playerLayer.player = player
-            playerLayer.videoGravity = .resizeAspect
-            setNeedsLayout()
+    ) {
+        if uiViewController.player !== player {
+            uiViewController.player = player
         }
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        playerLayer.frame = bounds
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        setNeedsLayout()
+        uiViewController.showsPlaybackControls = false
+        uiViewController.videoGravity = .resizeAspect
     }
 }
 #else
@@ -372,7 +346,7 @@ private struct EditorBrowserAssetPreview: View {
             ZStack {
                 if let player {
                     #if canImport(UIKit)
-                    BrowserVideoLayerRepresentable(player: player)
+                    AVPlayerPreviewViewControllerRepresentable(player: player)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     #else
                     AVPlayerRepresentable(player: player)
