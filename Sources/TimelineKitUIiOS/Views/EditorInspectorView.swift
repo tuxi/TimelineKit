@@ -1057,6 +1057,24 @@ private struct EditorInspectorBrowserAssetInfoContent: View {
             if let duration = asset.duration {
                 InspectorRow("时长", String(format: "%.2fs", duration))
             }
+            if let size = asset.naturalSize {
+                InspectorRow(
+                    "分辨率",
+                    "\(Int(size.width)) × \(Int(size.height))"
+                )
+            }
+            if let frameRate = asset.frameRate, frameRate > 0 {
+                InspectorRow("帧率", String(format: "%.1f fps", frameRate))
+            }
+            if let channels = asset.audioChannels, channels > 0 {
+                InspectorRow(
+                    "声道",
+                    channels == 1 ? "单声道" : "\(channels) 声道"
+                )
+            }
+            if let fileSize = asset.fileSize {
+                InspectorRow("大小", Self.byteFormatter.string(fromByteCount: fileSize))
+            }
             InspectorRow("来源", asset.url.lastPathComponent)
         }
     }
@@ -1068,6 +1086,12 @@ private struct EditorInspectorBrowserAssetInfoContent: View {
         case .audio: return "音频"
         }
     }
+
+    private static let byteFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter
+    }()
 }
 
 private struct EditorInspectorTransitionDraftContent: View {

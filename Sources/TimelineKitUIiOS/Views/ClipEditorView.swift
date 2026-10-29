@@ -2,6 +2,8 @@
 import SwiftUI
 import PhotosUI
 import AVFoundation
+import CoreMedia
+import ImageIO
 import UniformTypeIdentifiers
 import TimelineKitCore
 import TimelineKitRender
@@ -289,14 +291,127 @@ public struct ClipEditorView: View {
         case .audio: kind = .audio
         }
 
-        selectedBrowserMediaID = item.id
-        browserPreviewAsset = EditorPreviewAsset(
+        let baseAsset = EditorPreviewAsset(
             id: item.id,
             url: item.url,
             kind: kind,
             title: item.title,
             duration: item.duration
         )
+        selectedBrowserMediaID = item.id
+        browserPreviewAsset = baseAsset
+
+        Task { @MainActor in
+            let metadata = await loadBrowserAssetMetadata(for: item)
+            guard browserPreviewAsset?.id == baseAsset.id else { return }
+
+            browserPreviewAsset = EditorPreviewAsset(
+                id: baseAsset.id,
+                url: baseAsset.url,
+                kind: baseAsset.kind,
+                title: baseAsset.title,
+                duration: metadata.duration ?? baseAsset.duration,
+                naturalSize: metadata.naturalSize,
+                frameRate: metadata.frameRate,
+                fileSize: metadata.fileSize,
+                audioChannels: metadata.audioChannels
+            )
+        }
+    }
+
+    private func loadBrowserAssetMetadata(
+        for item: EditorBrowserMediaItem
+    ) async -> BrowserAssetMetadata {
+        var metadata = BrowserAssetMetadata(duration: item.duration)
+        metadata.fileSize = fileSize(for: item.url)
+
+        switch item.kind {
+        case .image:
+            metadata.naturalSize = imageSize(for: item.url)
+
+        case .video:
+            let asset = AVURLAsset(url: item.url)
+            let videoTracks = (try? await asset.loadTracks(withMediaType: .video)) ?? []
+            if let track = videoTracks.first {
+                let transformed = CGSizeApplyAffineTransform(
+                    track.naturalSize,
+                    track.preferredTransform
+                )
+                metadata.naturalSize = CGSize(
+                    width: abs(transformed.width),
+                    height: abs(transformed.height)
+                )
+                if track.nominalFrameRate > 0 {
+                    metadata.frameRate = Double(track.nominalFrameRate)
+                }
+            }
+
+            let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
+            if let channels = audioChannelCount(for: audioTracks.first) {
+                metadata.audioChannels = channels
+            }
+
+            if metadata.duration == nil,
+               let duration = try? await asset.load(.duration),
+               duration.seconds.isFinite {
+                metadata.duration = max(0, duration.seconds)
+            }
+
+        case .audio:
+            let asset = AVURLAsset(url: item.url)
+            let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
+            if let channels = audioChannelCount(for: audioTracks.first) {
+                metadata.audioChannels = channels
+            }
+
+            if metadata.duration == nil,
+               let duration = try? await asset.load(.duration),
+               duration.seconds.isFinite {
+                metadata.duration = max(0, duration.seconds)
+            }
+        }
+
+        return metadata
+    }
+
+    private func audioChannelCount(for track: AVAssetTrack?) -> Int? {
+        guard let track else { return nil }
+
+        for formatDescription in track.formatDescriptions {
+            let cmFormat = formatDescription as! CMFormatDescription
+            guard let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(cmFormat) else {
+                continue
+            }
+
+            let channels = Int(asbd.pointee.mChannelsPerFrame)
+            if channels > 0 {
+                return channels
+            }
+        }
+
+        return nil
+    }
+
+    private func fileSize(for url: URL) -> Int64? {
+        guard let attributes = try? FileManager.default
+            .attributesOfItem(atPath: url.path) else {
+            return nil
+        }
+        return attributes[.size] as? Int64
+    }
+
+    private func imageSize(for url: URL) -> CGSize? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(
+                  source,
+                  0,
+                  nil
+              ) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else {
+            return nil
+        }
+        return CGSize(width: width, height: height)
     }
 
     private func exitBrowserPreview(
@@ -1740,6 +1855,14 @@ public struct ClipEditorView: View {
 }
 
 // MARK: - UIKit Bridge
+
+private struct BrowserAssetMetadata {
+    var duration: Double?
+    var naturalSize: CGSize?
+    var frameRate: Double?
+    var fileSize: Int64?
+    var audioChannels: Int?
+}
 
 /// Embeds ClipEditorViewController (UIKit) into SwiftUI.
 struct TrackEditorRepresentable: UIViewControllerRepresentable {
