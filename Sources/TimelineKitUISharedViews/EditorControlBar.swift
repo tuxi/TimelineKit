@@ -9,13 +9,30 @@ public struct EditorControlBar: View {
     /// 拥有 `@State showFullScreenPreview` 并通过 `.fullScreenCover` 呈现
     /// `FullScreenPreviewView`。本视图仅负责发起请求。
     var onRequestFullScreenPreview: () -> Void = {}
+    /// When set, the bar controls the browser asset preview instead of the timeline.
+    var browserPlayback: BrowserAssetPlaybackController?
 
-    public init(store: EditorStore, onRequestFullScreenPreview: @escaping () -> Void = {}) {
+    public init(
+        store: EditorStore,
+        onRequestFullScreenPreview: @escaping () -> Void = {},
+        browserPlayback: BrowserAssetPlaybackController? = nil
+    ) {
         self.store = store
         self.onRequestFullScreenPreview = onRequestFullScreenPreview
+        self.browserPlayback = browserPlayback
     }
 
     public var body: some View {
+        Group {
+            if let browserPlayback {
+                browserControls(browserPlayback)
+            } else {
+                timelineControls
+            }
+        }
+    }
+
+    private var timelineControls: some View {
         HStack(spacing: 0) {
             Spacer()
 
@@ -53,6 +70,60 @@ public struct EditorControlBar: View {
             .opacity(isTimelineEmpty ? 0.4 : 1.0)
             .accessibilityLabel("全屏预览")
         }
+    }
+
+    private func browserControls(
+        _ playback: BrowserAssetPlaybackController
+    ) -> some View {
+        HStack(spacing: 10) {
+            controlButton(
+                icon: playback.isPlaying ? "pause.fill" : "play.fill",
+                iconSize: 20,
+                width: 52,
+                height: 44
+            ) {
+                playback.togglePlayback()
+            }
+            .disabled(playback.duration <= 0 || playback.playItem == nil)
+            .opacity(
+                playback.duration <= 0 || playback.playItem == nil
+                ? 0.4
+                : 1
+            )
+
+            if playback.duration > 0 {
+                Text(timeString(playback.currentTime))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .frame(width: 38, alignment: .trailing)
+
+                Slider(
+                    value: Binding(
+                        get: { min(playback.currentTime, playback.duration) },
+                        set: { playback.seek(to: $0) }
+                    ),
+                    in: 0...max(playback.duration, 0.01)
+                )
+                .tint(.white)
+                .accessibilityLabel("素材预览进度")
+
+                Text(timeString(playback.duration))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .frame(width: 38, alignment: .leading)
+            } else {
+                Text("图片素材")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.5))
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func timeString(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 
     /// 用于禁用全屏按钮：timeline 没有任何段时无内容可预览。

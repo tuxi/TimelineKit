@@ -28,7 +28,9 @@ public struct EditorCanvasSurface: View {
     /// TimelinePreviewView from CompositionCoordinator (set by umbrella layer).
     public var timelinePreviewView: TimelinePreviewView? = nil
     public var onExitBrowserPreview: (() -> Void)? = nil
-    public var onBrowserPlayerChange: ((AVPlayer?) -> Void)? = nil
+    public var browserPlayback: BrowserAssetPlaybackController? = nil
+
+    @State private var fallbackPlayback = BrowserAssetPlaybackController()
 
     public init(
         store: EditorStore,
@@ -36,14 +38,14 @@ public struct EditorCanvasSurface: View {
         compositionPlayer: AVPlayer? = nil,
         timelinePreviewView: TimelinePreviewView? = nil,
         onExitBrowserPreview: (() -> Void)? = nil,
-        onBrowserPlayerChange: ((AVPlayer?) -> Void)? = nil
+        browserPlayback: BrowserAssetPlaybackController? = nil
     ) {
         self.store = store
         self.source = source
         self.compositionPlayer = compositionPlayer
         self.timelinePreviewView = timelinePreviewView
         self.onExitBrowserPreview = onExitBrowserPreview
-        self.onBrowserPlayerChange = onBrowserPlayerChange
+        self.browserPlayback = browserPlayback
     }
 
     public var body: some View {
@@ -52,8 +54,8 @@ public struct EditorCanvasSurface: View {
             case .browserAsset(let asset):
                 BrowserAssetCanvasRenderer(
                     asset: asset,
-                    onExit: onExitBrowserPreview,
-                    onPlayerChange: onBrowserPlayerChange
+                    playback: browserPlayback ?? fallbackPlayback,
+                    onExit: onExitBrowserPreview
                 )
 
             case .timeline:
@@ -201,7 +203,7 @@ public struct EditorPreviewView: View {
     /// moving the timeline playhead.
     public var previewAsset: EditorPreviewAsset? = nil
     public var onExitPreview: (() -> Void)? = nil
-    public var onBrowserPlayerChange: ((AVPlayer?) -> Void)? = nil
+    public var browserPlayback: BrowserAssetPlaybackController? = nil
 
     public init(
         store: EditorStore,
@@ -209,14 +211,14 @@ public struct EditorPreviewView: View {
         timelinePreviewView: TimelinePreviewView? = nil,
         previewAsset: EditorPreviewAsset? = nil,
         onExitPreview: (() -> Void)? = nil,
-        onBrowserPlayerChange: ((AVPlayer?) -> Void)? = nil
+        browserPlayback: BrowserAssetPlaybackController? = nil
     ) {
         self.store = store
         self.compositionPlayer = compositionPlayer
         self.timelinePreviewView = timelinePreviewView
         self.previewAsset = previewAsset
         self.onExitPreview = onExitPreview
-        self.onBrowserPlayerChange = onBrowserPlayerChange
+        self.browserPlayback = browserPlayback
     }
 
     public var body: some View {
@@ -226,7 +228,7 @@ public struct EditorPreviewView: View {
             compositionPlayer: compositionPlayer,
             timelinePreviewView: timelinePreviewView,
             onExitBrowserPreview: onExitPreview,
-            onBrowserPlayerChange: onBrowserPlayerChange
+            browserPlayback: browserPlayback
         )
     }
 
@@ -335,19 +337,10 @@ private typealias BrowserPreviewImage = NSImage
 
 struct BrowserAssetCanvasRenderer: View {
     let asset: EditorPreviewAsset
+    let playback: BrowserAssetPlaybackController
     let onExit: (() -> Void)?
-    var onPlayerChange: ((AVPlayer?) -> Void)? = nil
 
-    @State private var player = AVPlayer()
-    @State private var playItem: AVPlayerItem?
-    @State private var videoOutput: AVPlayerItemVideoOutput?
     @State private var image: BrowserPreviewImage?
-    @State private var isPlaying = false
-    @State private var currentTime: Double = 0
-    @State private var duration: Double = 0
-    @State private var isScrubbing = false
-    @State private var wasPlayingBeforeScrub = false
-    @State private var timeObserver: Any?
 
     var body: some View {
         ZStack {
@@ -370,7 +363,7 @@ struct BrowserAssetCanvasRenderer: View {
                     Spacer(minLength: 8)
 
                     Button {
-                        player.pause()
+                        playback.pause()
                         onExit?()
                     } label: {
                         Label("返回时间线", systemImage: "arrow.uturn.backward")
@@ -388,60 +381,22 @@ struct BrowserAssetCanvasRenderer: View {
 
                 Spacer(minLength: 0)
 
-                VStack(spacing: 6) {
-                    HStack(spacing: 10) {
-                        if asset.kind != .image {
-                            Button {
-                                togglePlayback()
-                            } label: {
-                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 34, height: 34)
-                                    .background(
-                                        Color.white.opacity(0.16),
-                                        in: Circle()
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                        }
+                HStack(spacing: 10) {
+                    Image(systemName: icon)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.75))
 
-                        Image(systemName: icon)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.75))
+                    Text(asset.title)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineLimit(1)
 
-                        Text(asset.title)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .lineLimit(1)
+                    Spacer(minLength: 8)
 
-                        Spacer(minLength: 8)
-
-                        Text(timeString(duration > 0 ? duration : (asset.duration ?? 0)))
+                    if let duration = asset.duration {
+                        Text(timeString(duration))
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(.white.opacity(0.6))
-                    }
-
-                    if duration > 0 {
-                        HStack(spacing: 8) {
-                            Text(timeString(currentTime))
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.6))
-
-                            Slider(
-                                value: Binding(
-                                    get: { min(currentTime, duration) },
-                                    set: { newValue in
-                                        seekPreview(to: newValue)
-                                    }
-                                ),
-                                in: 0...duration,
-                                onEditingChanged: { editing in
-                                    beginOrEndScrub(isEditing: editing)
-                                }
-                            )
-                            .tint(.white)
-                        }
                     }
                 }
                 .padding(8)
@@ -453,17 +408,7 @@ struct BrowserAssetCanvasRenderer: View {
             .padding(12)
         }
         .task(id: asset.id) {
-            await loadPreview()
-        }
-        .onAppear {
-            onPlayerChange?(player)
-        }
-        .onDisappear {
-            onPlayerChange?(nil)
-            removeTimeObserver()
-            player.pause()
-            player.replaceCurrentItem(with: nil)
-            playItem = nil
+            await loadImageIfNeeded()
         }
     }
 
@@ -480,20 +425,19 @@ struct BrowserAssetCanvasRenderer: View {
 
         case .video:
             GeometryReader { geo in
-                if playItem != nil {
+                if playback.playItem != nil,
+                   let output = playback.videoOutput {
                     #if canImport(UIKit)
-                    if let videoOutput {
-                        BrowserVideoFrameRepresentable(
-                            player: player,
-                            output: videoOutput
-                        )
-                        .frame(
-                            width: max(geo.size.width, 1),
-                            height: max(geo.size.height, 1)
-                        )
-                    }
+                    BrowserVideoFrameRepresentable(
+                        player: playback.player,
+                        output: output
+                    )
+                    .frame(
+                        width: max(geo.size.width, 1),
+                        height: max(geo.size.height, 1)
+                    )
                     #else
-                    AVPlayerRepresentable(player: player)
+                    AVPlayerRepresentable(player: playback.player)
                         .frame(
                             width: max(geo.size.width, 1),
                             height: max(geo.size.height, 1)
@@ -542,131 +486,21 @@ struct BrowserAssetCanvasRenderer: View {
     }
 
     @MainActor
-    private func loadPreview() async {
-        player.pause()
-        player.replaceCurrentItem(with: nil)
-        playItem = nil
+    private func loadImageIfNeeded() async {
+        guard asset.kind == .image else { return }
         image = nil
-        isPlaying = false
-        isScrubbing = false
-        wasPlayingBeforeScrub = false
-        currentTime = 0
-        duration = asset.duration ?? 0
 
-        switch asset.kind {
-        case .image:
-            if let cgImage = await ThumbnailProvider.shared.thumbnail(
-                for: asset.url,
-                isImage: true,
-                at: 0,
-                size: CGSize(width: 1280, height: 720)
-            ) {
-                #if canImport(UIKit)
-                image = UIImage(cgImage: cgImage)
-                #else
-                image = NSImage(cgImage: cgImage, size: .zero)
-                #endif
-            }
-
-        case .video, .audio:
-            configurePlayer()
-        }
-    }
-
-    private func configurePlayer() {
-        player.pause()
-        let item = AVPlayerItem(url: asset.url)
-
-        if asset.kind == .video {
-            let output = videoOutput ?? AVPlayerItemVideoOutput(
-                pixelBufferAttributes: [
-                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-                ]
-            )
-            videoOutput = output
-            item.add(output)
-        }
-
-        playItem = item
-        player.replaceCurrentItem(with: item)
-
-        if duration <= 0, let itemDuration = playItem?.duration,
-           itemDuration.seconds.isFinite {
-            duration = max(0, itemDuration.seconds)
-        }
-        installTimeObserverIfNeeded()
-    }
-
-    private func togglePlayback() {
-        guard playItem != nil else { return }
-        if player.rate > 0 {
-            player.pause()
-            isPlaying = false
-        } else {
-            if duration > 0 && currentTime >= duration - 0.05 {
-                seekPreview(to: 0)
-            }
-            player.play()
-            isPlaying = true
-        }
-    }
-
-    private func seekPreview(to seconds: Double) {
-        guard playItem != nil, duration > 0 else {
-            currentTime = max(0, seconds)
-            return
-        }
-        let clamped = min(max(seconds, 0), duration)
-        currentTime = clamped
-        player.seek(
-            to: CMTime(seconds: clamped, preferredTimescale: 600),
-            toleranceBefore: .zero,
-            toleranceAfter: .zero
-        )
-    }
-
-    private func beginOrEndScrub(isEditing: Bool) {
-        if isEditing {
-            isScrubbing = true
-            wasPlayingBeforeScrub = isPlaying
-            player.pause()
-            isPlaying = false
-        } else {
-            isScrubbing = false
-            if wasPlayingBeforeScrub {
-                player.play()
-                isPlaying = true
-            }
-            wasPlayingBeforeScrub = false
-        }
-    }
-
-    private func installTimeObserverIfNeeded() {
-        guard timeObserver == nil else { return }
-        installTimeObserver(for: player)
-    }
-
-    private func installTimeObserver(for player: AVPlayer) {
-        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
-        timeObserver = player.addPeriodicTimeObserver(
-            forInterval: interval,
-            queue: .main
-        ) { time in
-            Task { @MainActor in
-                guard !isScrubbing else { return }
-                currentTime = max(0, time.seconds)
-                if duration > 0, currentTime >= duration - 0.05 {
-                    player.pause()
-                    isPlaying = false
-                }
-            }
-        }
-    }
-
-    private func removeTimeObserver() {
-        if let timeObserver {
-            player.removeTimeObserver(timeObserver)
-            self.timeObserver = nil
+        if let cgImage = await ThumbnailProvider.shared.thumbnail(
+            for: asset.url,
+            isImage: true,
+            at: 0,
+            size: CGSize(width: 1280, height: 720)
+        ) {
+            #if canImport(UIKit)
+            image = UIImage(cgImage: cgImage)
+            #else
+            image = NSImage(cgImage: cgImage, size: .zero)
+            #endif
         }
     }
 

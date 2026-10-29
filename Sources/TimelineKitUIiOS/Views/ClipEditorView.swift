@@ -114,7 +114,7 @@ public struct ClipEditorView: View {
     @State private var showMediaBrowser = false
     @State private var workspaceContentSize: CGSize = .zero
     @State private var browserPreviewAsset: EditorPreviewAsset?
-    @State private var browserPreviewPlayer: AVPlayer?
+    @State private var browserPlayback = BrowserAssetPlaybackController()
     @State private var selectedBrowserMediaID: UUID?
     @State private var trackController: ClipEditorViewController?
     @State private var browserPreviewTimelineTime: Double = 0
@@ -301,6 +301,7 @@ public struct ClipEditorView: View {
         )
         selectedBrowserMediaID = item.id
         browserPreviewAsset = baseAsset
+        Task { await browserPlayback.load(baseAsset) }
 
         Task { @MainActor in
             let metadata = await loadBrowserAssetMetadata(for: item)
@@ -421,8 +422,7 @@ public struct ClipEditorView: View {
     ) {
         guard browserPreviewAsset != nil else { return }
 
-        browserPreviewPlayer?.pause()
-        browserPreviewPlayer = nil
+        browserPlayback.stop()
         browserPreviewAsset = nil
         selectedBrowserMediaID = nil
 
@@ -491,8 +491,7 @@ public struct ClipEditorView: View {
             )
         }
 
-        browserPreviewPlayer?.pause()
-        browserPreviewPlayer = nil
+        browserPlayback.stop()
         browserPreviewAsset = nil
         selectedBrowserMediaID = nil
         browserPreviewWasPlaying = false
@@ -975,9 +974,7 @@ public struct ClipEditorView: View {
             onExitPreview: {
                 exitBrowserPreview()
             },
-            onBrowserPlayerChange: { player in
-                browserPreviewPlayer = player
-            }
+            browserPlayback: browserPlayback
         )
     }
 
@@ -1058,16 +1055,20 @@ public struct ClipEditorView: View {
     }
 
     private var editorControlBar: some View {
-        editorControlBarView(isEnabled: browserPreviewAsset == nil)
+        editorControlBarView(
+            browserPlayback: browserPreviewAsset != nil ? browserPlayback : nil
+        )
     }
 
     private func editorControlBarView(
         height: CGFloat? = nil,
-        isEnabled: Bool = true
+        isEnabled: Bool = true,
+        browserPlayback: BrowserAssetPlaybackController? = nil
     ) -> some View {
         EditorControlBar(
             store: store,
-            onRequestFullScreenPreview: { showFullScreenPreview = true }
+            onRequestFullScreenPreview: { showFullScreenPreview = true },
+            browserPlayback: browserPlayback
         )
         .frame(height: height ?? controlBarHeight)
         .padding(.horizontal, 12)
