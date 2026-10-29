@@ -1340,7 +1340,7 @@ public struct ClipEditorView: View {
             )
             .background(Color(white: 0.10))
             .presentationBackground(Color(white: 0.10))
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
     }
