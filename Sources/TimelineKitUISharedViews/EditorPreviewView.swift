@@ -187,6 +187,11 @@ private struct EditorBrowserAssetPreview: View {
     @State private var player: AVPlayer?
     @State private var image: BrowserPreviewImage?
     @State private var isPlaying = false
+    @State private var currentTime: Double = 0
+    @State private var duration: Double = 0
+    @State private var isScrubbing = false
+    @State private var wasPlayingBeforeScrub = false
+    @State private var timeObserver: Any?
 
     var body: some View {
         ZStack {
@@ -228,32 +233,48 @@ private struct EditorBrowserAssetPreview: View {
                 Spacer(minLength: 0)
 
                 if asset.kind != .image {
-                    HStack(spacing: 10) {
-                        Button {
-                            togglePlayback()
-                        } label: {
-                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 34, height: 34)
-                                .background(
-                                    Color.white.opacity(0.16),
-                                    in: Circle()
-                                )
-                        }
-                        .buttonStyle(.plain)
+                    VStack(spacing: 6) {
+                        HStack(spacing: 10) {
+                            Button {
+                                togglePlayback()
+                            } label: {
+                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 34, height: 34)
+                                    .background(
+                                        Color.white.opacity(0.16),
+                                        in: Circle()
+                                    )
+                            }
+                            .buttonStyle(.plain)
 
-                        Text(asset.title)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .lineLimit(1)
+                            Text(asset.title)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.85))
+                                .lineLimit(1)
 
-                        Spacer(minLength: 8)
+                            Spacer(minLength: 8)
 
-                        if let duration = asset.duration {
-                            Text(timeString(duration))
+                            Text("\(timeString(currentTime)) / \(timeString(duration))")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.white.opacity(0.6))
+                        }
+
+                        if duration > 0 {
+                            Slider(
+                                value: Binding(
+                                    get: { min(currentTime, duration) },
+                                    set: { newValue in
+                                        seekPreview(to: newValue)
+                                    }
+                                ),
+                                in: 0...duration,
+                                onEditingChanged: { editing in
+                                    beginOrEndScrub(isEditing: editing)
+                                }
+                            )
+                            .tint(.white)
                         }
                     }
                     .padding(8)
@@ -269,6 +290,7 @@ private struct EditorBrowserAssetPreview: View {
             await loadAsset()
         }
         .onDisappear {
+            removeTimeObserver()
             player?.pause()
             player = nil
         }
@@ -316,10 +338,15 @@ private struct EditorBrowserAssetPreview: View {
     }
 
     private func loadAsset() async {
+        removeTimeObserver()
         player?.pause()
         player = nil
         image = nil
         isPlaying = false
+        isScrubbing = false
+        wasPlayingBeforeScrub = false
+        currentTime = 0
+        duration = asset.duration ?? 0
 
         switch asset.kind {
         case .image:
@@ -328,6 +355,10 @@ private struct EditorBrowserAssetPreview: View {
             let newPlayer = AVPlayer(url: asset.url)
             newPlayer.pause()
             player = newPlayer
+            if duration <= 0 {
+                duration = max(0, newPlayer.currentItem?.duration.seconds ?? 0)
+            }
+            installTimeObserver(for: newPlayer)
         }
     }
 
@@ -337,8 +368,63 @@ private struct EditorBrowserAssetPreview: View {
             player.pause()
             isPlaying = false
         } else {
+            if duration > 0 && currentTime >= duration - 0.05 {
+                seekPreview(to: 0)
+            }
             player.play()
             isPlaying = true
+        }
+    }
+
+    private func seekPreview(to seconds: Double) {
+        guard let player, duration > 0 else {
+            currentTime = max(0, seconds)
+            return
+        }
+        let clamped = min(max(seconds, 0), duration)
+        currentTime = clamped
+        player.seek(
+            to: CMTime(seconds: clamped, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
+    }
+
+    private func beginOrEndScrub(isEditing: Bool) {
+        if isEditing {
+            isScrubbing = true
+            wasPlayingBeforeScrub = isPlaying
+            player?.pause()
+            isPlaying = false
+        } else {
+            isScrubbing = false
+            if wasPlayingBeforeScrub {
+                player?.play()
+                isPlaying = true
+            }
+            wasPlayingBeforeScrub = false
+        }
+    }
+
+    private func installTimeObserver(for player: AVPlayer) {
+        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: interval,
+            queue: .main
+        ) { time in
+            guard !isScrubbing else { return }
+            currentTime = max(0, time.seconds)
+            if duration > 0, currentTime >= duration - 0.05 {
+                player.pause()
+                isPlaying = false
+            }
+        }
+    }
+
+    private func removeTimeObserver() {
+        if let timeObserver {
+            player?.removeTimeObserver(timeObserver)
+            self.timeObserver = nil
         }
     }
 
