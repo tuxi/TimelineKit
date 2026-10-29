@@ -111,6 +111,10 @@ public struct ClipEditorView: View {
     @State private var showAudioTools = false
     @State private var showMediaBrowser = false
     @State private var workspaceContentSize: CGSize = .zero
+    @State private var browserPreviewAsset: EditorPreviewAsset?
+    @State private var selectedBrowserMediaID: UUID?
+    @State private var browserPreviewTimelineTime: Double = 0
+    @State private var browserPreviewWasPlaying = false
     @State private var isMediaDropTargeted = false
     @State private var showInspector = false
     @State private var isWorkspaceInspectorCollapsed = false
@@ -270,17 +274,90 @@ public struct ClipEditorView: View {
         inspectorTab = .text
     }
 
+    private func previewBrowserMedia(_ item: EditorBrowserMediaItem) {
+        if browserPreviewAsset == nil {
+            browserPreviewTimelineTime = store.selection.playheadTime
+            browserPreviewWasPlaying = store.isPlaying
+            store.pause()
+        }
+
+        let kind: EditorPreviewAsset.Kind
+        switch item.kind {
+        case .image: kind = .image
+        case .video: kind = .video
+        case .audio: kind = .audio
+        }
+
+        selectedBrowserMediaID = item.id
+        browserPreviewAsset = EditorPreviewAsset(
+            id: item.id,
+            url: item.url,
+            kind: kind,
+            title: item.title,
+            duration: item.duration
+        )
+        showMediaBrowser = false
+    }
+
+    private func exitBrowserPreview(
+        restorePlayhead: Bool = true,
+        resumePlayback: Bool = true
+    ) {
+        guard browserPreviewAsset != nil else { return }
+
+        browserPreviewAsset = nil
+        selectedBrowserMediaID = nil
+
+        if restorePlayhead {
+            store.seek(to: browserPreviewTimelineTime)
+        }
+        if resumePlayback, browserPreviewWasPlaying {
+            store.play()
+        }
+        browserPreviewWasPlaying = false
+    }
+
+    private func insertBrowserMedia(_ item: EditorBrowserMediaItem) {
+        let segmentID: UUID?
+
+        switch item.kind {
+        case .image:
+            segmentID = store.addVisualSegment(
+                localURL: item.url,
+                nativeDuration: nil
+            )
+        case .video:
+            segmentID = store.addVisualSegment(
+                localURL: item.url,
+                nativeDuration: item.duration
+            )
+        case .audio:
+            segmentID = store.addAudioSegment(
+                localURL: item.url,
+                nativeDuration: max(item.duration ?? 0, 0.1)
+            )
+        }
+
+        browserPreviewAsset = nil
+        selectedBrowserMediaID = nil
+        browserPreviewWasPlaying = false
+        store.pause()
+        showMediaBrowser = false
+
+        if let segmentID,
+           let segment = store.timeline.segment(id: segmentID) {
+            store.selection.selectOnly(segmentID)
+            store.seek(to: segment.targetRange.start)
+        }
+    }
+
     // MARK: - Stacked (phone) layout
 
     private func stackedContent(geo: GeometryProxy, previewHeight: CGFloat) -> some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
-                EditorPreviewView(
-                    store: store,
-                    compositionPlayer: coordinator.player,
-                    timelinePreviewView: coordinator.timelinePreviewView
-                )
-                .frame(height: previewHeight)
+                previewContent
+                    .frame(height: previewHeight)
 
                 Divider().background(Color.white.opacity(0.08))
 
@@ -348,6 +425,28 @@ public struct ClipEditorView: View {
         mediaBrowserPanel(isCollapsed: $isMediaPanelCollapsed)
     }
 
+    private var browserMediaItems: [EditorBrowserMediaItem] {
+        guard let library = libraryStore.library else { return [] }
+
+        return libraryStore.mediaEntries.compactMap { entry in
+            let kind: EditorBrowserMediaItem.Kind
+            switch entry.kind {
+            case .image: kind = .image
+            case .video: kind = .video
+            case .audio: kind = .audio
+            case .other: return nil
+            }
+
+            return EditorBrowserMediaItem(
+                id: entry.id,
+                url: library.mediaFileURL(for: entry),
+                title: entry.originalFileName,
+                kind: kind,
+                duration: entry.duration
+            )
+        }
+    }
+
     private var usesPersistentMediaPanel: Bool {
         workspaceForm == .wideWorkspace
             && workspaceContentSize.width > workspaceContentSize.height
@@ -389,7 +488,15 @@ public struct ClipEditorView: View {
                 showMediaBrowser = false
                 Task { await loadDroppedMediaURLs(urls) }
             },
-            onClose: onClose
+            onClose: onClose,
+            mediaItems: browserMediaItems,
+            selectedMediaID: selectedBrowserMediaID,
+            onSelectMedia: { item in
+                previewBrowserMedia(item)
+            },
+            onInsertMedia: { item in
+                insertBrowserMedia(item)
+            }
         )
     }
 
@@ -428,16 +535,12 @@ public struct ClipEditorView: View {
                     }
                 }
 
-                EditorPreviewView(
-                    store: store,
-                    compositionPlayer: coordinator.player,
-                    timelinePreviewView: coordinator.timelinePreviewView
-                )
-                .frame(
-                    maxWidth: .infinity,
-                    maxHeight: .infinity,
-                    alignment: .top
-                )
+                previewContent
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: .top
+                    )
 
                 Divider().background(Color.white.opacity(0.08))
 
@@ -692,10 +795,18 @@ public struct ClipEditorView: View {
     }
 
     private var previewPane: some View {
+        previewContent
+    }
+
+    private var previewContent: some View {
         EditorPreviewView(
             store: store,
             compositionPlayer: coordinator.player,
-            timelinePreviewView: coordinator.timelinePreviewView
+            timelinePreviewView: coordinator.timelinePreviewView,
+            previewAsset: browserPreviewAsset,
+            onExitPreview: {
+                exitBrowserPreview()
+            }
         )
     }
 
@@ -776,11 +887,12 @@ public struct ClipEditorView: View {
     }
 
     private var editorControlBar: some View {
-        editorControlBarView()
+        editorControlBarView(isEnabled: browserPreviewAsset == nil)
     }
 
     private func editorControlBarView(
-        height: CGFloat? = nil
+        height: CGFloat? = nil,
+        isEnabled: Bool = true
     ) -> some View {
         EditorControlBar(
             store: store,
@@ -788,6 +900,8 @@ public struct ClipEditorView: View {
         )
         .frame(height: height ?? controlBarHeight)
         .padding(.horizontal, 12)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.4)
     }
 
     private var trackPane: some View {
@@ -1044,7 +1158,10 @@ public struct ClipEditorView: View {
             mediaBrowserPanel(
                 isCollapsed: .constant(false),
                 width: 320,
-                onClose: { showMediaBrowser = false }
+                onClose: {
+                    showMediaBrowser = false
+                    exitBrowserPreview()
+                }
             )
             .frame(
                 maxWidth: .infinity,
@@ -1091,6 +1208,16 @@ public struct ClipEditorView: View {
             trackRefreshToken &+= 1
         }
         .onChange(of: store.selection.singleSelectedID) { _, newID in
+            // Selecting a timeline object leaves browser preview. The controller
+            // already positioned the playhead for the clip, so do not restore the
+            // saved browser time here.
+            if newID != nil, browserPreviewAsset != nil {
+                exitBrowserPreview(
+                    restorePlayhead: false,
+                    resumePlayback: false
+                )
+            }
+
             // v3 text-entry-spec §3.5: selecting a segment auto-switches the bottom toolbar
             // category. The actual panel rendered above is driven by segment content too —
             // this only updates the highlight on the bottom toolbar.

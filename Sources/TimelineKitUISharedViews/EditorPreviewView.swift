@@ -16,92 +16,111 @@ public struct EditorPreviewView: View {
     public var compositionPlayer: AVPlayer? = nil
     /// TimelinePreviewView from CompositionCoordinator (set by umbrella layer).
     public var timelinePreviewView: TimelinePreviewView? = nil
-    
-    public init(store: EditorStore, compositionPlayer: AVPlayer? = nil, timelinePreviewView: TimelinePreviewView? = nil) {
+    /// Browser asset preview. When set, it replaces the timeline canvas without
+    /// moving the timeline playhead.
+    public var previewAsset: EditorPreviewAsset? = nil
+    public var onExitPreview: (() -> Void)? = nil
+
+    public init(
+        store: EditorStore,
+        compositionPlayer: AVPlayer? = nil,
+        timelinePreviewView: TimelinePreviewView? = nil,
+        previewAsset: EditorPreviewAsset? = nil,
+        onExitPreview: (() -> Void)? = nil
+    ) {
         self.store = store
         self.compositionPlayer = compositionPlayer
         self.timelinePreviewView = timelinePreviewView
+        self.previewAsset = previewAsset
+        self.onExitPreview = onExitPreview
     }
 
     public var body: some View {
         ZStack {
-            // V6 P1 (Stage 1-2): For image-only timelines the Timeline Runtime
-            // renders directly into `TimelinePreviewView`, bypassing AVVideoCompositing.
-            // The AVPlayerRepresentable is hidden (not removed) so AVPlayer still
-            // drives timing and audio even on the new path.
-            if store.usesTimelineRuntime, let previewView = timelinePreviewView {
-                TimelinePreviewRepresentable(previewView: previewView)
-            } else if let player = compositionPlayer ?? store.player {
-                AVPlayerRepresentable(player: player)
+            if let previewAsset {
+                EditorBrowserAssetPreview(
+                    asset: previewAsset,
+                    onExit: onExitPreview
+                )
             } else {
-                Color.black
-            }
+                // V6 P1 (Stage 1-2): For image-only timelines the Timeline Runtime
+                // renders directly into `TimelinePreviewView`, bypassing AVVideoCompositing.
+                // The AVPlayerRepresentable is hidden (not removed) so AVPlayer still
+                // drives timing and audio even on the new path.
+                if store.usesTimelineRuntime, let previewView = timelinePreviewView {
+                    TimelinePreviewRepresentable(previewView: previewView)
+                } else if let player = compositionPlayer ?? store.player {
+                    AVPlayerRepresentable(player: player)
+                } else {
+                    Color.black
+                }
 
-            // Text overlays: visible in legacy preview, transparent hit-test only
-            // in TimelineRuntime because the actual pixels are drawn by
-            // TextLayerComposer inside TimelineRenderer.
-            GeometryReader { geo in
-                ForEach(activeTextOverlays, id: \.seg.id) { item in
-                    if case .text(let content) = item.seg.content {
-                        TextOverlayView(
-                            segmentID: item.seg.id,
-                            content: content,
-                            containerSize: geo.size,
-                            isEditing: store.selection.editingSegmentID == item.seg.id,
-                            rendersContent: !store.usesTimelineRuntime,
-                            onTap: {
-                                store.selection.selectOnly(item.seg.id)
-                            },
-                            onDragChange: { pos in
-                                store.previewTextPosition(segmentID: item.seg.id, position: pos)
-                            },
-                            onDragCommit: { pos in
-                                store.updateTextPosition(segmentID: item.seg.id, position: pos)
-                            }
-                        )
-                        .opacity(store.usesTimelineRuntime ? 1.0 : item.opacity)
-                        // v4 (track-header-controls-spec §2.2): tapping a locked /
-                        // hidden text segment should not enter edit mode — it's
-                        // view-only. We still let the user select it so the
-                        // segment action panel surfaces (which shows the lock /
-                        // hide state and a clear path to toggle it off).
-                        .allowsHitTesting(item.opacity == 1.0)
+                // Text overlays: visible in legacy preview, transparent hit-test only
+                // in TimelineRuntime because the actual pixels are drawn by
+                // TextLayerComposer inside TimelineRenderer.
+                GeometryReader { geo in
+                    ForEach(activeTextOverlays, id: \.seg.id) { item in
+                        if case .text(let content) = item.seg.content {
+                            TextOverlayView(
+                                segmentID: item.seg.id,
+                                content: content,
+                                containerSize: geo.size,
+                                isEditing: store.selection.editingSegmentID == item.seg.id,
+                                rendersContent: !store.usesTimelineRuntime,
+                                onTap: {
+                                    store.selection.selectOnly(item.seg.id)
+                                },
+                                onDragChange: { pos in
+                                    store.previewTextPosition(segmentID: item.seg.id, position: pos)
+                                },
+                                onDragCommit: { pos in
+                                    store.updateTextPosition(segmentID: item.seg.id, position: pos)
+                                }
+                            )
+                            .opacity(store.usesTimelineRuntime ? 1.0 : item.opacity)
+                            // v4 (track-header-controls-spec §2.2): tapping a locked /
+                            // hidden text segment should not enter edit mode — it's
+                            // view-only. We still let the user select it so the
+                            // segment action panel surfaces (which shows the lock /
+                            // hide state and a clear path to toggle it off).
+                            .allowsHitTesting(item.opacity == 1.0)
+                        }
                     }
                 }
-            }
 
-            // Active subtitles: visible in legacy preview, transparent hit-test
-            // only in TimelineRuntime.
-            GeometryReader { geo in
-                SubtitleStackView(
-                    items:         activeSubtitleOverlays,
-                    containerSize: geo.size,
-                    selectedID:    store.selection.singleSelectedID,
-                    rendersContent: !store.usesTimelineRuntime,
-                    onTap:         { id in store.selection.selectOnly(id) },
-                    onDragChange:  { id, y in store.previewSubtitlePosition(segmentID: id, positionY: y) },
-                    onDragCommit:  { id, y in store.updateSubtitlePosition(segmentID: id, positionY: y) }
-                )
-            }
-            if store.isAwaitingAutomaticCanvas,
-               !store.timeline.tracks.flatMap(\.segments).contains(where: {
-                   switch $0.content {
-                   case .audio: return false
-                   default: return true
-                   }
-               }) {
-                VStack(spacing: 10) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.title2)
-                    Text("添加视频或照片")
-                        .font(.headline)
-                    Text("画布比例将随首个素材自动设置")
-                        .font(.caption)
+                // Active subtitles: visible in legacy preview, transparent hit-test
+                // only in TimelineRuntime.
+                GeometryReader { geo in
+                    SubtitleStackView(
+                        items:         activeSubtitleOverlays,
+                        containerSize: geo.size,
+                        selectedID:    store.selection.singleSelectedID,
+                        rendersContent: !store.usesTimelineRuntime,
+                        onTap:         { id in store.selection.selectOnly(id) },
+                        onDragChange:  { id, y in store.previewSubtitlePosition(segmentID: id, positionY: y) },
+                        onDragCommit:  { id, y in store.updateSubtitlePosition(segmentID: id, positionY: y) }
+                    )
                 }
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding()
-                .allowsHitTesting(false)
+                if store.isAwaitingAutomaticCanvas,
+                   !store.timeline.tracks.flatMap(\.segments).contains(where: {
+                       switch $0.content {
+                       case .audio: return false
+                       default: return true
+                       }
+                   }) {
+                    VStack(spacing: 10) {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.title2)
+                        Text("添加视频或照片")
+                            .font(.headline)
+                        Text("画布比例将随首个素材自动设置")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding()
+                    .allowsHitTesting(false)
+                }
             }
         }
         .aspectRatio(canvasAspect, contentMode: .fit)
@@ -150,6 +169,183 @@ public struct EditorPreviewView: View {
             }
         }
         return out.sorted { $0.seg.targetRange.start < $1.seg.targetRange.start }
+    }
+}
+
+// MARK: - Browser asset preview
+
+#if canImport(UIKit)
+private typealias BrowserPreviewImage = UIImage
+#else
+private typealias BrowserPreviewImage = NSImage
+#endif
+
+private struct EditorBrowserAssetPreview: View {
+    let asset: EditorPreviewAsset
+    let onExit: (() -> Void)?
+
+    @State private var player: AVPlayer?
+    @State private var image: BrowserPreviewImage?
+    @State private var isPlaying = false
+
+    var body: some View {
+        ZStack {
+            Color.black
+
+            previewContent
+
+            VStack {
+                HStack(spacing: 8) {
+                    Label("素材预览", systemImage: "rectangle.on.rectangle")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(
+                            Color.black.opacity(0.5),
+                            in: Capsule()
+                        )
+
+                    Spacer(minLength: 8)
+
+                    Button {
+                        player?.pause()
+                        onExit?()
+                    } label: {
+                        Label("返回时间线", systemImage: "arrow.uturn.backward")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(
+                                Color.black.opacity(0.5),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer(minLength: 0)
+
+                if asset.kind != .image {
+                    HStack(spacing: 10) {
+                        Button {
+                            togglePlayback()
+                        } label: {
+                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 34, height: 34)
+                                .background(
+                                    Color.white.opacity(0.16),
+                                    in: Circle()
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        Text(asset.title)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .lineLimit(1)
+
+                        Spacer(minLength: 8)
+
+                        if let duration = asset.duration {
+                            Text(timeString(duration))
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.6))
+                        }
+                    }
+                    .padding(8)
+                    .background(
+                        Color.black.opacity(0.55),
+                        in: RoundedRectangle(cornerRadius: 10)
+                    )
+                }
+            }
+            .padding(12)
+        }
+        .task(id: asset.id) {
+            await loadAsset()
+        }
+        .onDisappear {
+            player?.pause()
+            player = nil
+        }
+    }
+
+    @ViewBuilder
+    private var previewContent: some View {
+        switch asset.kind {
+        case .image:
+            if let image {
+                #if canImport(UIKit)
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                #else
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                #endif
+            } else {
+                ProgressView()
+                    .tint(.white)
+            }
+
+        case .video:
+            if let player {
+                AVPlayerRepresentable(player: player)
+            } else {
+                Color.black
+            }
+
+        case .audio:
+            VStack(spacing: 10) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 42, weight: .light))
+                    .foregroundStyle(.white.opacity(0.75))
+                Text(asset.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(24)
+        }
+    }
+
+    private func loadAsset() async {
+        player?.pause()
+        player = nil
+        image = nil
+        isPlaying = false
+
+        switch asset.kind {
+        case .image:
+            image = BrowserPreviewImage(contentsOfFile: asset.url.path)
+        case .video, .audio:
+            let newPlayer = AVPlayer(url: asset.url)
+            newPlayer.pause()
+            player = newPlayer
+        }
+    }
+
+    private func togglePlayback() {
+        guard let player else { return }
+        if player.rate > 0 {
+            player.pause()
+            isPlaying = false
+        } else {
+            player.play()
+            isPlaying = true
+        }
+    }
+
+    private func timeString(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }
 

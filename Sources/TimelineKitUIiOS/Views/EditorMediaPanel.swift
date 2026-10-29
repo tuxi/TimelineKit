@@ -1,5 +1,22 @@
 #if canImport(UIKit)
 import SwiftUI
+import AVFoundation
+import UIKit
+
+/// A library media item shown in the material browser.
+struct EditorBrowserMediaItem: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case image
+        case video
+        case audio
+    }
+
+    let id: UUID
+    let url: URL
+    let title: String
+    let kind: Kind
+    let duration: Double?
+}
 
 /// Left-side material browser for regular layouts.
 ///
@@ -15,6 +32,10 @@ struct EditorMediaPanel: View {
     var onCreateSubtitle: () -> Void
     var onDropURLs: ([URL]) -> Void
     var onClose: (() -> Void)? = nil
+    var mediaItems: [EditorBrowserMediaItem] = []
+    var selectedMediaID: UUID?
+    var onSelectMedia: (EditorBrowserMediaItem) -> Void = { _ in }
+    var onInsertMedia: (EditorBrowserMediaItem) -> Void = { _ in }
 
     @State private var selectedTab: Tab = .media
     @State private var isTargeted = false
@@ -74,19 +95,19 @@ struct EditorMediaPanel: View {
 
             Divider().background(Color.white.opacity(0.08))
 
-            Group {
-                switch selectedTab {
-                case .media:
-                    mediaContent
-                case .audio:
-                    audioContent
-                case .text:
-                    textContent
+            ScrollView(showsIndicators: false) {
+                Group {
+                    switch selectedTab {
+                    case .media:
+                        mediaContent
+                    case .audio:
+                        audioContent
+                    case .text:
+                        textContent
+                    }
                 }
+                .padding(10)
             }
-            .padding(10)
-
-            Spacer(minLength: 0)
         }
         .frame(width: width)
     }
@@ -128,6 +149,35 @@ struct EditorMediaPanel: View {
 
     private var mediaContent: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text("最近素材")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.5))
+
+            if mediaItems.isEmpty {
+                Text("还没有最近素材")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.35))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            } else {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 8),
+                        GridItem(.flexible(), spacing: 8)
+                    ],
+                    spacing: 8
+                ) {
+                    ForEach(mediaItems) { item in
+                        BrowserMediaCard(
+                            item: item,
+                            isSelected: selectedMediaID == item.id,
+                            onSelect: { onSelectMedia(item) },
+                            onInsert: { onInsertMedia(item) }
+                        )
+                    }
+                }
+            }
+
             entryButton(
                 "照片与视频",
                 icon: "photo.on.rectangle",
@@ -251,6 +301,128 @@ struct EditorMediaPanel: View {
         }
         .padding(.top, 8)
         .frame(width: 44)
+    }
+}
+
+private struct BrowserMediaCard: View {
+    let item: EditorBrowserMediaItem
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onInsert: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Button(action: onSelect) {
+                VStack(alignment: .leading, spacing: 4) {
+                    BrowserMediaThumbnail(item: item)
+
+                    Text(item.title)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .lineLimit(1)
+
+                    if let duration = item.duration {
+                        Text(timeString(duration))
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
+                }
+                .padding(5)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(
+                            isSelected
+                            ? Color.white.opacity(0.16)
+                            : Color.white.opacity(0.05)
+                        )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(
+                            isSelected ? Color.yellow : Color.clear,
+                            lineWidth: 1.5
+                        )
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button(action: onInsert) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .background(
+                        Circle().fill(Color.black.opacity(0.55))
+                    )
+            }
+            .buttonStyle(.plain)
+            .padding(3)
+            .accessibilityLabel("添加 \(item.title) 到时间线")
+        }
+    }
+
+    private func timeString(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+private struct BrowserMediaThumbnail: View {
+    let item: EditorBrowserMediaItem
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            Color.black
+
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .light))
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 56)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .task(id: item.id) {
+            await loadThumbnail()
+        }
+    }
+
+    private var icon: String {
+        switch item.kind {
+        case .image: return "photo"
+        case .video: return "film"
+        case .audio: return "waveform"
+        }
+    }
+
+    private func loadThumbnail() async {
+        image = nil
+
+        switch item.kind {
+        case .image:
+            image = UIImage(contentsOfFile: item.url.path)
+
+        case .video:
+            let asset = AVURLAsset(url: item.url)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            if let result = try? await generator.image(
+                at: CMTime(seconds: 0.1, preferredTimescale: 600)
+            ) {
+                image = UIImage(cgImage: result.image)
+            }
+
+        case .audio:
+            break
+        }
     }
 }
 #endif
