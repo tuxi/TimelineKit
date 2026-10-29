@@ -1,6 +1,6 @@
 import SwiftUI
 import AVFoundation
-import AVKit
+import CoreVideo
 import CoreText
 import TimelineKitCore
 import TimelineKitRender
@@ -235,27 +235,90 @@ public struct EditorPreviewView: View {
 #if canImport(UIKit)
 private typealias BrowserPreviewImage = UIImage
 
-private struct AVPlayerPreviewViewControllerRepresentable: UIViewControllerRepresentable {
+private struct BrowserVideoFrameRepresentable: UIViewRepresentable {
     let player: AVPlayer
+    let output: AVPlayerItemVideoOutput
 
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let controller = AVPlayerViewController()
-        controller.player = player
-        controller.showsPlaybackControls = false
-        controller.videoGravity = .resizeAspect
-        controller.allowsPictureInPicturePlayback = false
-        return controller
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> TimelinePreviewView {
+        let view = TimelinePreviewView()
+        context.coordinator.start(
+            player: player,
+            output: output,
+            view: view
+        )
+        return view
     }
 
-    func updateUIViewController(
-        _ uiViewController: AVPlayerViewController,
-        context: Context
+    func updateUIView(_ uiView: TimelinePreviewView, context: Context) {
+        context.coordinator.update(player: player, output: output)
+    }
+
+    static func dismantleUIView(
+        _ uiView: TimelinePreviewView,
+        coordinator: Coordinator
     ) {
-        if uiViewController.player !== player {
-            uiViewController.player = player
+        coordinator.stop()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        private var displayLink: CADisplayLink?
+        private weak var view: TimelinePreviewView?
+        private var player: AVPlayer?
+        private var output: AVPlayerItemVideoOutput?
+        private var lastTime: CMTime?
+
+        func start(
+            player: AVPlayer,
+            output: AVPlayerItemVideoOutput,
+            view: TimelinePreviewView
+        ) {
+            self.player = player
+            self.output = output
+            self.view = view
+
+            let link = CADisplayLink(target: self, selector: #selector(tick))
+            link.add(to: .main, forMode: .common)
+            displayLink = link
         }
-        uiViewController.showsPlaybackControls = false
-        uiViewController.videoGravity = .resizeAspect
+
+        func update(player: AVPlayer, output: AVPlayerItemVideoOutput) {
+            self.player = player
+            self.output = output
+        }
+
+        func stop() {
+            displayLink?.invalidate()
+            displayLink = nil
+            player = nil
+            output = nil
+            view = nil
+            lastTime = nil
+        }
+
+        @objc private func tick() {
+            guard let player, let output, let view else { return }
+
+            let time = player.currentTime()
+            let hasNew = output.hasNewPixelBuffer(forItemTime: time)
+            let isPaused = player.rate == 0
+            let changedWhilePaused = isPaused && lastTime != time
+
+            guard hasNew || changedWhilePaused else { return }
+            guard let buffer = output.copyPixelBuffer(
+                forItemTime: time,
+                itemTimeForDisplay: nil
+            ) else { return }
+
+            if isPaused {
+                view.replace(with: buffer, presentationTime: time)
+            } else {
+                view.enqueue(buffer, presentationTime: time)
+            }
+            lastTime = time
+        }
     }
 }
 #else
@@ -268,6 +331,7 @@ struct BrowserAssetCanvasRenderer: View {
 
     @State private var player = AVPlayer()
     @State private var playItem: AVPlayerItem?
+    @State private var videoOutput: AVPlayerItemVideoOutput?
     @State private var image: BrowserPreviewImage?
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
@@ -405,11 +469,16 @@ struct BrowserAssetCanvasRenderer: View {
             GeometryReader { geo in
                 if playItem != nil {
                     #if canImport(UIKit)
-                    AVPlayerPreviewViewControllerRepresentable(player: player)
+                    if let videoOutput {
+                        BrowserVideoFrameRepresentable(
+                            player: player,
+                            output: videoOutput
+                        )
                         .frame(
                             width: max(geo.size.width, 1),
                             height: max(geo.size.height, 1)
                         )
+                    }
                     #else
                     AVPlayerRepresentable(player: player)
                         .frame(
@@ -494,6 +563,17 @@ struct BrowserAssetCanvasRenderer: View {
     private func configurePlayer() {
         player.pause()
         let item = AVPlayerItem(url: asset.url)
+
+        if asset.kind == .video {
+            let output = videoOutput ?? AVPlayerItemVideoOutput(
+                pixelBufferAttributes: [
+                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+                ]
+            )
+            videoOutput = output
+            item.add(output)
+        }
+
         playItem = item
         player.replaceCurrentItem(with: item)
 
