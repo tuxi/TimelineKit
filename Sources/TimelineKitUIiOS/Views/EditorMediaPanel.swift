@@ -18,6 +18,12 @@ struct EditorBrowserMediaItem: Identifiable, Equatable {
     let duration: Double?
 }
 
+/// A date-grouped browser section, mirroring the library media manifest.
+struct EditorBrowserMediaGroup: Equatable {
+    let date: Date
+    let items: [EditorBrowserMediaItem]
+}
+
 /// Left-side material browser for regular layouts.
 ///
 /// P2.1 provides the Media / Audio / Text groups and routes to the existing
@@ -32,7 +38,7 @@ struct EditorMediaPanel: View {
     var onCreateSubtitle: () -> Void
     var onDropURLs: ([URL]) -> Void
     var onClose: (() -> Void)? = nil
-    var mediaItems: [EditorBrowserMediaItem] = []
+    var mediaGroups: [EditorBrowserMediaGroup] = []
     var selectedMediaID: UUID?
     var onSelectMedia: (EditorBrowserMediaItem) -> Void = { _ in }
     var onInsertMedia: (EditorBrowserMediaItem) -> Void = { _ in }
@@ -153,27 +159,37 @@ struct EditorMediaPanel: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.5))
 
-            if mediaItems.isEmpty {
+            if mediaGroups.isEmpty {
                 Text("还没有最近素材")
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.35))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 8)
             } else {
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 8),
-                        GridItem(.flexible(), spacing: 8)
-                    ],
-                    spacing: 8
-                ) {
-                    ForEach(mediaItems) { item in
-                        BrowserMediaCard(
-                            item: item,
-                            isSelected: selectedMediaID == item.id,
-                            onSelect: { onSelectMedia(item) },
-                            onInsert: { onInsertMedia(item) }
-                        )
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(mediaGroups, id: \.date) { group in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(groupTitle(group.date))
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.4))
+
+                            LazyVGrid(
+                                columns: [
+                                    GridItem(.flexible(), spacing: 8),
+                                    GridItem(.flexible(), spacing: 8)
+                                ],
+                                spacing: 8
+                            ) {
+                                ForEach(group.items) { item in
+                                    BrowserMediaCard(
+                                        item: item,
+                                        isSelected: selectedMediaID == item.id,
+                                        onSelect: { onSelectMedia(item) },
+                                        onInsert: { onInsertMedia(item) }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -246,6 +262,23 @@ struct EditorMediaPanel: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    private func groupTitle(_ date: Date) -> String {
+        if Calendar.current.isDateInToday(date) {
+            return "今天"
+        }
+        if Calendar.current.isDateInYesterday(date) {
+            return "昨天"
+        }
+        return Self.groupFormatter.string(from: date)
+    }
+
+    private static let groupFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年M月d日"
+        return formatter
+    }()
 
     private func entryButton(
         _ title: String,

@@ -425,25 +425,30 @@ public struct ClipEditorView: View {
         mediaBrowserPanel(isCollapsed: $isMediaPanelCollapsed)
     }
 
-    private var browserMediaItems: [EditorBrowserMediaItem] {
+    private var browserMediaGroups: [EditorBrowserMediaGroup] {
         guard let library = libraryStore.library else { return [] }
 
-        return libraryStore.mediaEntries.compactMap { entry in
-            let kind: EditorBrowserMediaItem.Kind
-            switch entry.kind {
-            case .image: kind = .image
-            case .video: kind = .video
-            case .audio: kind = .audio
-            case .other: return nil
+        return libraryStore.groupedMedia.compactMap { group in
+            let items = group.items.compactMap { entry -> EditorBrowserMediaItem? in
+                let kind: EditorBrowserMediaItem.Kind
+                switch entry.kind {
+                case .image: kind = .image
+                case .video: kind = .video
+                case .audio: kind = .audio
+                case .other: return nil
+                }
+
+                return EditorBrowserMediaItem(
+                    id: entry.id,
+                    url: library.mediaFileURL(for: entry),
+                    title: entry.originalFileName,
+                    kind: kind,
+                    duration: entry.duration
+                )
             }
 
-            return EditorBrowserMediaItem(
-                id: entry.id,
-                url: library.mediaFileURL(for: entry),
-                title: entry.originalFileName,
-                kind: kind,
-                duration: entry.duration
-            )
+            guard !items.isEmpty else { return nil }
+            return EditorBrowserMediaGroup(date: group.date, items: items)
         }
     }
 
@@ -489,7 +494,7 @@ public struct ClipEditorView: View {
                 Task { await loadDroppedMediaURLs(urls) }
             },
             onClose: onClose,
-            mediaItems: browserMediaItems,
+            mediaGroups: browserMediaGroups,
             selectedMediaID: selectedBrowserMediaID,
             onSelectMedia: { item in
                 previewBrowserMedia(item)
