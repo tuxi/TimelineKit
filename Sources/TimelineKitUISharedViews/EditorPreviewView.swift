@@ -400,16 +400,24 @@ struct BrowserAssetCanvasRenderer: View {
             }
 
         case .video:
-            if let player {
-                #if canImport(UIKit)
-                AVPlayerPreviewViewControllerRepresentable(player: player)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                #else
-                AVPlayerRepresentable(player: player)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                #endif
-            } else {
-                Color.black
+            GeometryReader { geo in
+                if let player {
+                    #if canImport(UIKit)
+                    AVPlayerPreviewViewControllerRepresentable(player: player)
+                        .frame(
+                            width: max(geo.size.width, 1),
+                            height: max(geo.size.height, 1)
+                        )
+                    #else
+                    AVPlayerRepresentable(player: player)
+                        .frame(
+                            width: max(geo.size.width, 1),
+                            height: max(geo.size.height, 1)
+                        )
+                    #endif
+                } else {
+                    Color.black
+                }
             }
 
         case .audio:
