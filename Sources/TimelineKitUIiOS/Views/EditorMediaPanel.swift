@@ -424,16 +424,6 @@ private struct BrowserMediaCard: View {
             .padding(3)
             .accessibilityLabel("添加 \(item.title) 到时间线")
         }
-        .draggable(item.url) {
-            Label(item.title, systemImage: "photo")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white)
-                .padding(8)
-                .background(
-                    Color.black.opacity(0.8),
-                    in: RoundedRectangle(cornerRadius: 8)
-                )
-        }
     }
 
     private func timeString(_ seconds: Double) -> String {
@@ -467,6 +457,16 @@ private struct BrowserMediaThumbnail: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .task(id: item.id) {
             await loadThumbnail()
+        }
+        .draggable(item.url) {
+            Label(item.title, systemImage: "photo")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(8)
+                .background(
+                    Color.black.opacity(0.8),
+                    in: RoundedRectangle(cornerRadius: 8)
+                )
         }
     }
 

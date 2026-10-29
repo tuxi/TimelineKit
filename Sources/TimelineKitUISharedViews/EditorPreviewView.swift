@@ -184,7 +184,14 @@ private struct EditorBrowserAssetPreview: View {
     let asset: EditorPreviewAsset
     let onExit: (() -> Void)?
 
+    @State private var player: AVPlayer?
     @State private var image: BrowserPreviewImage?
+    @State private var isPlaying = false
+    @State private var currentTime: Double = 0
+    @State private var duration: Double = 0
+    @State private var isScrubbing = false
+    @State private var wasPlayingBeforeScrub = false
+    @State private var timeObserver: Any?
 
     var body: some View {
         ZStack {
@@ -207,6 +214,7 @@ private struct EditorBrowserAssetPreview: View {
                     Spacer(minLength: 8)
 
                     Button {
+                        player?.pause()
                         onExit?()
                     } label: {
                         Label("返回时间线", systemImage: "arrow.uturn.backward")
@@ -224,22 +232,60 @@ private struct EditorBrowserAssetPreview: View {
 
                 Spacer(minLength: 0)
 
-                HStack(spacing: 10) {
-                    Image(systemName: icon)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.75))
+                VStack(spacing: 6) {
+                    HStack(spacing: 10) {
+                        if asset.kind != .image {
+                            Button {
+                                togglePlayback()
+                            } label: {
+                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 34, height: 34)
+                                    .background(
+                                        Color.white.opacity(0.16),
+                                        in: Circle()
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
 
-                    Text(asset.title)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .lineLimit(1)
+                        Image(systemName: icon)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.75))
 
-                    Spacer(minLength: 8)
+                        Text(asset.title)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .lineLimit(1)
 
-                    if let duration = asset.duration {
-                        Text(timeString(duration))
+                        Spacer(minLength: 8)
+
+                        Text(timeString(duration > 0 ? duration : (asset.duration ?? 0)))
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(.white.opacity(0.6))
+                    }
+
+                    if duration > 0 {
+                        HStack(spacing: 8) {
+                            Text(timeString(currentTime))
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.6))
+
+                            Slider(
+                                value: Binding(
+                                    get: { min(currentTime, duration) },
+                                    set: { newValue in
+                                        seekPreview(to: newValue)
+                                    }
+                                ),
+                                in: 0...duration,
+                                onEditingChanged: { editing in
+                                    beginOrEndScrub(isEditing: editing)
+                                }
+                            )
+                            .tint(.white)
+                        }
                     }
                 }
                 .padding(8)
@@ -253,25 +299,36 @@ private struct EditorBrowserAssetPreview: View {
         .task(id: asset.id) {
             await loadPreview()
         }
+        .onDisappear {
+            removeTimeObserver()
+            player?.pause()
+            player = nil
+        }
     }
 
     @ViewBuilder
     private var previewContent: some View {
         switch asset.kind {
-        case .image, .video:
+        case .image:
             if let image {
-                #if canImport(UIKit)
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                #else
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                #endif
+                platformImageView(image)
             } else {
                 ProgressView()
                     .tint(.white)
+            }
+
+        case .video:
+            ZStack {
+                if let player {
+                    AVPlayerRepresentable(player: player)
+                }
+
+                if asset.kind == .video,
+                   let image,
+                   !isPlaying,
+                   currentTime == 0 {
+                    platformImageView(image)
+                }
             }
 
         case .audio:
@@ -290,6 +347,19 @@ private struct EditorBrowserAssetPreview: View {
         }
     }
 
+    @ViewBuilder
+    private func platformImageView(_ image: BrowserPreviewImage) -> some View {
+        #if canImport(UIKit)
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFit()
+        #else
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFit()
+        #endif
+    }
+
     private var icon: String {
         switch asset.kind {
         case .image: return "photo"
@@ -300,7 +370,15 @@ private struct EditorBrowserAssetPreview: View {
 
     @MainActor
     private func loadPreview() async {
+        removeTimeObserver()
+        player?.pause()
+        player = nil
         image = nil
+        isPlaying = false
+        isScrubbing = false
+        wasPlayingBeforeScrub = false
+        currentTime = 0
+        duration = asset.duration ?? 0
 
         switch asset.kind {
         case .image:
@@ -330,9 +408,88 @@ private struct EditorBrowserAssetPreview: View {
                 image = NSImage(cgImage: cgImage, size: .zero)
                 #endif
             }
+            configurePlayer()
 
         case .audio:
-            break
+            configurePlayer()
+        }
+    }
+
+    private func configurePlayer() {
+        let newPlayer = AVPlayer(url: asset.url)
+        newPlayer.pause()
+        player = newPlayer
+        if duration <= 0 {
+            duration = max(0, newPlayer.currentItem?.duration.seconds ?? 0)
+        }
+        installTimeObserver(for: newPlayer)
+    }
+
+    private func togglePlayback() {
+        guard let player else { return }
+        if player.rate > 0 {
+            player.pause()
+            isPlaying = false
+        } else {
+            if duration > 0 && currentTime >= duration - 0.05 {
+                seekPreview(to: 0)
+            }
+            player.play()
+            isPlaying = true
+        }
+    }
+
+    private func seekPreview(to seconds: Double) {
+        guard let player, duration > 0 else {
+            currentTime = max(0, seconds)
+            return
+        }
+        let clamped = min(max(seconds, 0), duration)
+        currentTime = clamped
+        player.seek(
+            to: CMTime(seconds: clamped, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
+    }
+
+    private func beginOrEndScrub(isEditing: Bool) {
+        if isEditing {
+            isScrubbing = true
+            wasPlayingBeforeScrub = isPlaying
+            player?.pause()
+            isPlaying = false
+        } else {
+            isScrubbing = false
+            if wasPlayingBeforeScrub {
+                player?.play()
+                isPlaying = true
+            }
+            wasPlayingBeforeScrub = false
+        }
+    }
+
+    private func installTimeObserver(for player: AVPlayer) {
+        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: interval,
+            queue: .main
+        ) { time in
+            Task { @MainActor in
+                guard !isScrubbing else { return }
+                currentTime = max(0, time.seconds)
+                if duration > 0, currentTime >= duration - 0.05 {
+                    player.pause()
+                    isPlaying = false
+                }
+            }
+        }
+    }
+
+    private func removeTimeObserver() {
+        if let timeObserver {
+            player?.removeTimeObserver(timeObserver)
+            self.timeObserver = nil
         }
     }
 

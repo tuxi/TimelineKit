@@ -297,7 +297,6 @@ public struct ClipEditorView: View {
             title: item.title,
             duration: item.duration
         )
-        showMediaBrowser = false
     }
 
     private func exitBrowserPreview(
