@@ -11,123 +11,137 @@ import UIKit
 import AppKit
 #endif
 
-public struct EditorPreviewView: View {
+/// The media source currently rendered by the canvas.
+///
+/// P2.4A keeps the behavior unchanged but gives the preview one explicit
+/// source model instead of scattered `previewAsset` branches.
+public enum EditorCanvasSource: Equatable, Sendable {
+    case timeline
+    case browserAsset(EditorPreviewAsset)
+}
+
+public struct EditorCanvasSurface: View {
     @Bindable public var store: EditorStore
+    public var source: EditorCanvasSource
     /// When set, this player is used instead of store.player (composition-based preview).
     public var compositionPlayer: AVPlayer? = nil
     /// TimelinePreviewView from CompositionCoordinator (set by umbrella layer).
     public var timelinePreviewView: TimelinePreviewView? = nil
-    /// Browser asset preview. When set, it replaces the timeline canvas without
-    /// moving the timeline playhead.
-    public var previewAsset: EditorPreviewAsset? = nil
-    public var onExitPreview: (() -> Void)? = nil
+    public var onExitBrowserPreview: (() -> Void)? = nil
 
     public init(
         store: EditorStore,
+        source: EditorCanvasSource,
         compositionPlayer: AVPlayer? = nil,
         timelinePreviewView: TimelinePreviewView? = nil,
-        previewAsset: EditorPreviewAsset? = nil,
-        onExitPreview: (() -> Void)? = nil
+        onExitBrowserPreview: (() -> Void)? = nil
     ) {
         self.store = store
+        self.source = source
         self.compositionPlayer = compositionPlayer
         self.timelinePreviewView = timelinePreviewView
-        self.previewAsset = previewAsset
-        self.onExitPreview = onExitPreview
+        self.onExitBrowserPreview = onExitBrowserPreview
     }
 
     public var body: some View {
         ZStack {
-            if let previewAsset {
+            switch source {
+            case .browserAsset(let asset):
                 EditorBrowserAssetPreview(
-                    asset: previewAsset,
-                    onExit: onExitPreview
+                    asset: asset,
+                    onExit: onExitBrowserPreview
                 )
-            } else {
-                // V6 P1 (Stage 1-2): For image-only timelines the Timeline Runtime
-                // renders directly into `TimelinePreviewView`, bypassing AVVideoCompositing.
-                // The AVPlayerRepresentable is hidden (not removed) so AVPlayer still
-                // drives timing and audio even on the new path.
-                if store.usesTimelineRuntime, let previewView = timelinePreviewView {
-                    TimelinePreviewRepresentable(previewView: previewView)
-                } else if let player = compositionPlayer ?? store.player {
-                    AVPlayerRepresentable(player: player)
-                } else {
-                    Color.black
-                }
 
-                // Text overlays: visible in legacy preview, transparent hit-test only
-                // in TimelineRuntime because the actual pixels are drawn by
-                // TextLayerComposer inside TimelineRenderer.
-                GeometryReader { geo in
-                    ForEach(activeTextOverlays, id: \.seg.id) { item in
-                        if case .text(let content) = item.seg.content {
-                            TextOverlayView(
-                                segmentID: item.seg.id,
-                                content: content,
-                                containerSize: geo.size,
-                                isEditing: store.selection.editingSegmentID == item.seg.id,
-                                rendersContent: !store.usesTimelineRuntime,
-                                onTap: {
-                                    store.selection.selectOnly(item.seg.id)
-                                },
-                                onDragChange: { pos in
-                                    store.previewTextPosition(segmentID: item.seg.id, position: pos)
-                                },
-                                onDragCommit: { pos in
-                                    store.updateTextPosition(segmentID: item.seg.id, position: pos)
-                                }
-                            )
-                            .opacity(store.usesTimelineRuntime ? 1.0 : item.opacity)
-                            // v4 (track-header-controls-spec §2.2): tapping a locked /
-                            // hidden text segment should not enter edit mode — it's
-                            // view-only. We still let the user select it so the
-                            // segment action panel surfaces (which shows the lock /
-                            // hide state and a clear path to toggle it off).
-                            .allowsHitTesting(item.opacity == 1.0)
-                        }
-                    }
-                }
-
-                // Active subtitles: visible in legacy preview, transparent hit-test
-                // only in TimelineRuntime.
-                GeometryReader { geo in
-                    SubtitleStackView(
-                        items:         activeSubtitleOverlays,
-                        containerSize: geo.size,
-                        selectedID:    store.selection.singleSelectedID,
-                        rendersContent: !store.usesTimelineRuntime,
-                        onTap:         { id in store.selection.selectOnly(id) },
-                        onDragChange:  { id, y in store.previewSubtitlePosition(segmentID: id, positionY: y) },
-                        onDragCommit:  { id, y in store.updateSubtitlePosition(segmentID: id, positionY: y) }
-                    )
-                }
-                if store.isAwaitingAutomaticCanvas,
-                   !store.timeline.tracks.flatMap(\.segments).contains(where: {
-                       switch $0.content {
-                       case .audio: return false
-                       default: return true
-                       }
-                   }) {
-                    VStack(spacing: 10) {
-                        Image(systemName: "photo.on.rectangle.angled")
-                            .font(.title2)
-                        Text("添加视频或照片")
-                            .font(.headline)
-                        Text("画布比例将随首个素材自动设置")
-                            .font(.caption)
-                    }
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding()
-                    .allowsHitTesting(false)
-                }
+            case .timeline:
+                timelineContent
             }
         }
         .aspectRatio(canvasAspect, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .padding(.horizontal, 12)
         .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private var timelineContent: some View {
+        // V6 P1 (Stage 1-2): For image-only timelines the Timeline Runtime
+        // renders directly into `TimelinePreviewView`, bypassing AVVideoCompositing.
+        // The AVPlayerRepresentable is hidden (not removed) so AVPlayer still
+        // drives timing and audio even on the new path.
+        if store.usesTimelineRuntime, let previewView = timelinePreviewView {
+            TimelinePreviewRepresentable(previewView: previewView)
+        } else if let player = compositionPlayer ?? store.player {
+            AVPlayerRepresentable(player: player)
+        } else {
+            Color.black
+        }
+
+        // Text overlays: visible in legacy preview, transparent hit-test only
+        // in TimelineRuntime because the actual pixels are drawn by
+        // TextLayerComposer inside TimelineRenderer.
+        GeometryReader { geo in
+            ForEach(activeTextOverlays, id: \.seg.id) { item in
+                if case .text(let content) = item.seg.content {
+                    TextOverlayView(
+                        segmentID: item.seg.id,
+                        content: content,
+                        containerSize: geo.size,
+                        isEditing: store.selection.editingSegmentID == item.seg.id,
+                        rendersContent: !store.usesTimelineRuntime,
+                        onTap: {
+                            store.selection.selectOnly(item.seg.id)
+                        },
+                        onDragChange: { pos in
+                            store.previewTextPosition(segmentID: item.seg.id, position: pos)
+                        },
+                        onDragCommit: { pos in
+                            store.updateTextPosition(segmentID: item.seg.id, position: pos)
+                        }
+                    )
+                    .opacity(store.usesTimelineRuntime ? 1.0 : item.opacity)
+                    // v4 (track-header-controls-spec §2.2): tapping a locked /
+                    // hidden text segment should not enter edit mode — it's
+                    // view-only. We still let the user select it so the
+                    // segment action panel surfaces (which shows the lock /
+                    // hide state and a clear path to toggle it off).
+                    .allowsHitTesting(item.opacity == 1.0)
+                }
+            }
+        }
+
+        // Active subtitles: visible in legacy preview, transparent hit-test
+        // only in TimelineRuntime.
+        GeometryReader { geo in
+            SubtitleStackView(
+                items:         activeSubtitleOverlays,
+                containerSize: geo.size,
+                selectedID:    store.selection.singleSelectedID,
+                rendersContent: !store.usesTimelineRuntime,
+                onTap:         { id in store.selection.selectOnly(id) },
+                onDragChange:  { id, y in store.previewSubtitlePosition(segmentID: id, positionY: y) },
+                onDragCommit:  { id, y in store.updateSubtitlePosition(segmentID: id, positionY: y) }
+            )
+        }
+        if store.isAwaitingAutomaticCanvas,
+           !store.timeline.tracks.flatMap(\.segments).contains(where: {
+               switch $0.content {
+               case .audio: return false
+               default: return true
+               }
+           }) {
+            VStack(spacing: 10) {
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.title2)
+                Text("添加视频或照片")
+                    .font(.headline)
+                Text("画布比例将随首个素材自动设置")
+                    .font(.caption)
+            }
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .padding()
+            .allowsHitTesting(false)
+        }
     }
 
     // MARK: - Computed
@@ -170,6 +184,49 @@ public struct EditorPreviewView: View {
             }
         }
         return out.sorted { $0.seg.targetRange.start < $1.seg.targetRange.start }
+    }
+}
+
+public struct EditorPreviewView: View {
+    @Bindable public var store: EditorStore
+    /// When set, this player is used instead of store.player (composition-based preview).
+    public var compositionPlayer: AVPlayer? = nil
+    /// TimelinePreviewView from CompositionCoordinator (set by umbrella layer).
+    public var timelinePreviewView: TimelinePreviewView? = nil
+    /// Browser asset preview. When set, it replaces the timeline canvas without
+    /// moving the timeline playhead.
+    public var previewAsset: EditorPreviewAsset? = nil
+    public var onExitPreview: (() -> Void)? = nil
+
+    public init(
+        store: EditorStore,
+        compositionPlayer: AVPlayer? = nil,
+        timelinePreviewView: TimelinePreviewView? = nil,
+        previewAsset: EditorPreviewAsset? = nil,
+        onExitPreview: (() -> Void)? = nil
+    ) {
+        self.store = store
+        self.compositionPlayer = compositionPlayer
+        self.timelinePreviewView = timelinePreviewView
+        self.previewAsset = previewAsset
+        self.onExitPreview = onExitPreview
+    }
+
+    public var body: some View {
+        EditorCanvasSurface(
+            store: store,
+            source: source,
+            compositionPlayer: compositionPlayer,
+            timelinePreviewView: timelinePreviewView,
+            onExitBrowserPreview: onExitPreview
+        )
+    }
+
+    private var source: EditorCanvasSource {
+        if let previewAsset {
+            return .browserAsset(previewAsset)
+        }
+        return .timeline
     }
 }
 
@@ -773,7 +830,7 @@ private struct SubtitleStackView: View {
     /// v4 (track-header-controls-spec §2.2): items carry per-segment opacity so
     /// segments on hidden / locked tracks dim to 0.4 in the preview canvas,
     /// matching the timeline visual state.
-    let items: [EditorPreviewView.OverlayItem]
+    let items: [EditorCanvasSurface.OverlayItem]
     let containerSize: CGSize
     let selectedID: UUID?
     let rendersContent: Bool
