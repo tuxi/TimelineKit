@@ -18,6 +18,7 @@ struct EditorInspectorView: View {
     var projectName: String? = nil
     var transitionID: UUID? = nil
     var cutContext: TransitionEditContext? = nil
+    var browserAsset: EditorPreviewAsset? = nil
     @Binding var activeTab: EditorInspectorTab
     var onCollapse: (() -> Void)? = nil
 
@@ -55,7 +56,8 @@ struct EditorInspectorView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.65))
 
-            if let subtitle = segmentName
+            if let subtitle = browserAsset?.title
+                ?? segmentName
                 ?? (transition != nil ? "转场" : (cutContext != nil ? "添加转场" : projectName)) {
                 Text(subtitle)
                     .font(.system(size: 11))
@@ -204,7 +206,9 @@ struct EditorInspectorView: View {
             }
 
         case .info:
-            if let segment {
+            if let browserAsset {
+                EditorInspectorBrowserAssetInfoContent(asset: browserAsset)
+            } else if let segment {
                 EditorInspectorInfoContent(segment: segment, store: store)
             } else if let transition {
                 EditorInspectorTransitionInfoContent(transition: transition)
@@ -1039,6 +1043,29 @@ private struct EditorInspectorTransitionInfoContent: View {
                     String(transition.trailingSegmentID.uuidString.prefix(8))
                 )
             }
+        }
+    }
+}
+
+private struct EditorInspectorBrowserAssetInfoContent: View {
+    let asset: EditorPreviewAsset
+
+    var body: some View {
+        InspectorSection("素材信息") {
+            InspectorRow("名称", asset.title)
+            InspectorRow("类型", typeTitle)
+            if let duration = asset.duration {
+                InspectorRow("时长", String(format: "%.2fs", duration))
+            }
+            InspectorRow("来源", asset.url.lastPathComponent)
+        }
+    }
+
+    private var typeTitle: String {
+        switch asset.kind {
+        case .image: return "图片"
+        case .video: return "视频"
+        case .audio: return "音频"
         }
     }
 }

@@ -62,6 +62,7 @@ public enum EditorInspectorContentKind: String, CaseIterable, Hashable, Sendable
     case audio
     case transition
     case multiple
+    case mediaAsset
 }
 
 /// Pure tab decision for the inspector.
@@ -98,6 +99,9 @@ public struct EditorInspectorContext: Equatable, Sendable {
         case .multiple:
             availableTabs = [.multiSelection]
             defaultTab = .multiSelection
+        case .mediaAsset:
+            availableTabs = [.info]
+            defaultTab = .info
         }
     }
 

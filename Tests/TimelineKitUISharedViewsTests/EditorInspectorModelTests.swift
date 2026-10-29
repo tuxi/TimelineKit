@@ -53,6 +53,13 @@ final class EditorInspectorModelTests: XCTestCase {
         XCTAssertEqual(context.defaultTab, .transition)
     }
 
+    func testBrowserAssetShowsInfoOnly() {
+        let context = EditorInspectorContext(kind: .mediaAsset)
+
+        XCTAssertEqual(context.availableTabs, [.info])
+        XCTAssertEqual(context.defaultTab, .info)
+    }
+
     func testNoSelectionShowsProject() {
         let context = EditorInspectorContext(kind: .none)
 

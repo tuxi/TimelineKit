@@ -416,6 +416,9 @@ public struct ClipEditorView: View {
     }
 
     private var inspectorContext: EditorInspectorContext {
+        if browserPreviewAsset != nil {
+            return EditorInspectorContext(kind: .mediaAsset)
+        }
         if store.selection.selectedTransitionID != nil
             || store.selection.selectedCutContext != nil {
             return EditorInspectorContext(kind: .transition)
@@ -608,6 +611,7 @@ public struct ClipEditorView: View {
                             projectName: projectName,
                             transitionID: store.selection.selectedTransitionID,
                             cutContext: store.selection.selectedCutContext,
+                            browserAsset: browserPreviewAsset,
                             activeTab: $inspectorTab,
                             onCollapse: {
                                 withAnimation(.spring(duration: 0.25)) {
@@ -1128,6 +1132,7 @@ public struct ClipEditorView: View {
                 projectName: projectName,
                 transitionID: store.selection.selectedTransitionID,
                 cutContext: store.selection.selectedCutContext,
+                browserAsset: browserPreviewAsset,
                 activeTab: $inspectorTab,
                 onCollapse: { tabbedInspectorSheetRequested = false }
             )
