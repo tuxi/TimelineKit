@@ -414,28 +414,17 @@ private struct BrowserMediaCard: View {
 private struct BrowserMediaThumbnail: View {
     let item: EditorBrowserMediaItem
 
-    @State private var image: UIImage?
-
     var body: some View {
         ZStack {
             Color.black
 
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Image(systemName: icon)
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(.white.opacity(0.55))
-            }
+            Image(systemName: icon)
+                .font(.system(size: 20, weight: .light))
+                .foregroundStyle(.white.opacity(0.55))
         }
         .frame(maxWidth: .infinity)
         .frame(height: 56)
         .clipShape(RoundedRectangle(cornerRadius: 6))
-        .task(id: item.id) {
-            await loadThumbnail()
-        }
     }
 
     private var icon: String {
@@ -443,30 +432,6 @@ private struct BrowserMediaThumbnail: View {
         case .image: return "photo"
         case .video: return "film"
         case .audio: return "waveform"
-        }
-    }
-
-    @MainActor
-    private func loadThumbnail() async {
-        image = nil
-
-        switch item.kind {
-        case .image:
-            image = UIImage(contentsOfFile: item.url.path)
-
-        case .video:
-            let asset = AVURLAsset(url: item.url)
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            if let result = try? await generator.image(
-                at: CMTime(seconds: 0.1, preferredTimescale: 600)
-            ) {
-                // Resume on the main actor before publishing SwiftUI state.
-                image = UIImage(cgImage: result.image)
-            }
-
-        case .audio:
-            break
         }
     }
 }
