@@ -46,3 +46,6 @@ fastlane/test_output
 # Local verification artifacts
 /artifacts/
 *.bak
+
+# Agent workspace state (local only)
+.workbuddy-ai/
