@@ -68,6 +68,69 @@ public struct LibraryProject: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+// MARK: - Project cover thumbnail source
+
+/// Identifies the frame a project cover thumbnail should show: the earliest
+/// visual (image/video) main-track segment that has a resolvable asset URL.
+///
+/// Value-semantic and `Hashable`, so it can serve as a stable request identity
+/// for async loading — it changes only when the cover source actually changes,
+/// not on renames, pins, or unrelated timeline edits.
+public struct ProjectThumbnailSource: Sendable, Hashable {
+    public let url: URL
+    /// true → still image asset; false → video asset.
+    public let isImage: Bool
+    /// Source timestamp (seconds) for video extraction: the start of the
+    /// segment's `sourceRange` (0 when the segment uses the full asset).
+    /// Always 0 for image assets.
+    public let time: Double
+
+    public init(url: URL, isImage: Bool, time: Double) {
+        self.url = url
+        self.isImage = isImage
+        self.time = time
+    }
+}
+
+extension LibraryProject {
+    /// The cover frame for this project, or nil when no main track has a
+    /// visual (image/video) segment with a usable asset URL.
+    ///
+    /// All tracks marked `isMainTrack` are considered, not just the first one:
+    /// persisted drafts can contain several backbone-flagged tracks (e.g. an
+    /// empty leading one), and `timeline.mainTrack` would then hide the real
+    /// picture. Overlay/text/subtitle/audio segments never become the cover.
+    /// Candidates are scanned by GLOBAL ascending `targetRange.start` across
+    /// those tracks; the sort is stable, so equal starts resolve by track and
+    /// segment array order — deterministic across calls and launches, keeping
+    /// the request identity free of jitter.
+    public var thumbnailSource: ProjectThumbnailSource? {
+        var candidates: [EditorSegment] = []
+        for track in timeline.tracks where track.isMainTrack {
+            candidates.append(contentsOf: track.segments)
+        }
+        // Swift's `sorted` is stable: ties keep (track order, segment order).
+        let segments = candidates.sorted { $0.targetRange.start < $1.targetRange.start }
+        for segment in segments {
+            switch segment.content {
+            case .image, .video: break          // visual content — candidate cover
+            default: continue
+            }
+            guard let asset = timeline.materials[segment.materialID] else { continue }
+            let isImage: Bool
+            switch asset.type {
+            case .image: isImage = true
+            case .video, .generatedVideo: isImage = false
+            case .audio, .voiceOver, .placeholder: continue
+            }
+            guard let url = asset.bestURL else { continue }
+            let time = isImage ? 0 : max(0, segment.sourceRange?.start ?? 0)
+            return ProjectThumbnailSource(url: url, isImage: isImage, time: time)
+        }
+        return nil
+    }
+}
+
 /// TimelineKit 资源库（Library）—— 自研 `.tlkbundle` 目录包。
 ///
 /// FCP 资源库心智模型（对照 `.fcpbundle`）：库 = 媒体库 + 项目。
