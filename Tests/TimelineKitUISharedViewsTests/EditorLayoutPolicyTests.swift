@@ -389,6 +389,83 @@ final class EditorLayoutPolicyTests: XCTestCase {
         XCTAssertEqual(decision.activeOcclusionFrames, [active.frame])
     }
 
+    // MARK: - Sheet height (half-fold avoidance)
+
+    func testHorizontalFoldCapsSheetHeightToRegionBelowFold() {
+        let fold = region(
+            .division,
+            CGRect(x: 0, y: 380, width: 1000, height: 40)
+        )
+        let decision = EditorLayoutPolicy.decide(
+            input(
+                container: CGSize(width: 1000, height: 800),
+                horizontal: .regular,
+                regions: [fold]
+            )
+        )
+
+        XCTAssertEqual(decision.form, .foldedWorkspace)
+        XCTAssertEqual(decision.sheetMaxHeight, 380)
+    }
+
+    func testHorizontalFoldCapAccountsForSafeAreaOrigin() {
+        let fold = region(
+            .division,
+            CGRect(x: 0, y: 380, width: 1000, height: 40)
+        )
+        let decision = EditorLayoutPolicy.decide(
+            input(
+                container: CGSize(width: 1000, height: 800),
+                horizontal: .regular,
+                insets: EditorLayoutInsets(top: 60, leading: 0, bottom: 0, trailing: 0),
+                regions: [fold]
+            )
+        )
+
+        // Content now runs from y=60 to y=800, so the lower panel is 800-420.
+        XCTAssertEqual(decision.sheetMaxHeight, 380)
+    }
+
+    func testVerticalFoldDoesNotCapSheetHeight() {
+        let fold = region(
+            .division,
+            CGRect(x: 480, y: 0, width: 40, height: 800)
+        )
+        let decision = EditorLayoutPolicy.decide(
+            input(
+                container: CGSize(width: 1000, height: 800),
+                horizontal: .regular,
+                regions: [fold]
+            )
+        )
+
+        XCTAssertEqual(decision.foldAxis, .vertical)
+        XCTAssertNil(decision.sheetMaxHeight)
+    }
+
+    func testStackedFormHasNoSheetHeightCap() {
+        let decision = EditorLayoutPolicy.decide(input(container: CGSize(width: 390, height: 844)))
+
+        XCTAssertNil(decision.sheetMaxHeight)
+    }
+
+    func testInactiveFoldDoesNotCapSheetHeight() {
+        let fold = region(
+            .division,
+            CGRect(x: 0, y: 380, width: 1000, height: 40),
+            active: false
+        )
+        let decision = EditorLayoutPolicy.decide(
+            input(
+                container: CGSize(width: 1000, height: 800),
+                horizontal: .regular,
+                regions: [fold]
+            )
+        )
+
+        XCTAssertNil(decision.sheetMaxHeight)
+    }
+
     // MARK: - Helpers
 
     private func input(

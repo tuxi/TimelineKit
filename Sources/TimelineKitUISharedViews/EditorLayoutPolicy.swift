@@ -181,6 +181,14 @@ public struct EditorLayoutDecision: Equatable, Sendable {
     /// Extra top inset for custom controls when an active occlusion intersects
     /// the top band. Zero when no avoidance is needed.
     public let topControlInset: CGFloat
+    /// Tallest bottom-anchored sheet that stays below an active horizontal fold.
+    ///
+    /// Only horizontal folds constrain a bottom sheet's height: the sheet grows
+    /// upward from the bottom edge, so the usable span is the region below the
+    /// fold. `nil` means no active horizontal fold and the caller keeps the
+    /// system default detents. A vertical fold splits the workspace into columns
+    /// and does not limit a full-width sheet's height.
+    public let sheetMaxHeight: CGFloat?
 
     public init(
         form: EditorLayoutForm,
@@ -194,7 +202,8 @@ public struct EditorLayoutDecision: Equatable, Sendable {
         showsAuxiliaryPanel: Bool,
         showsInspector: Bool,
         auxiliaryPanelWidth: CGFloat,
-        topControlInset: CGFloat
+        topControlInset: CGFloat,
+        sheetMaxHeight: CGFloat? = nil
     ) {
         self.form = form
         self.contentSize = contentSize
@@ -208,6 +217,7 @@ public struct EditorLayoutDecision: Equatable, Sendable {
         self.showsInspector = showsInspector
         self.auxiliaryPanelWidth = auxiliaryPanelWidth
         self.topControlInset = topControlInset
+        self.sheetMaxHeight = sheetMaxHeight
     }
 }
 
@@ -402,6 +412,7 @@ public enum EditorLayoutPolicy {
         let previewSize: CGSize
         let timelineSize: CGSize
         let axis: EditorFoldAxis
+        let sheetMaxHeight: CGFloat?
 
         if isVertical {
             axis = .vertical
@@ -409,12 +420,16 @@ public enum EditorLayoutPolicy {
             let trailing = max(0, contentRect.maxX - fold.frame.maxX)
             previewSize = CGSize(width: leading, height: contentRect.height)
             timelineSize = CGSize(width: trailing, height: contentRect.height)
+            sheetMaxHeight = nil
         } else {
             axis = .horizontal
             let top = max(0, fold.frame.minY - contentRect.minY)
             let bottom = max(0, contentRect.maxY - fold.frame.maxY)
             previewSize = CGSize(width: contentRect.width, height: top)
             timelineSize = CGSize(width: contentRect.width, height: bottom)
+            // A bottom sheet grows upward from the content's bottom edge, so it
+            // must stop at the fold to stay on one physical panel.
+            sheetMaxHeight = bottom > 0 ? bottom : nil
         }
 
         return EditorLayoutDecision(
@@ -429,7 +444,8 @@ public enum EditorLayoutPolicy {
             showsAuxiliaryPanel: false,
             showsInspector: false,
             auxiliaryPanelWidth: 0,
-            topControlInset: topControlInset
+            topControlInset: topControlInset,
+            sheetMaxHeight: sheetMaxHeight
         )
     }
 

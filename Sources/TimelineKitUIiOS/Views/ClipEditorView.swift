@@ -129,6 +129,9 @@ public struct ClipEditorView: View {
     @State private var isTabbedInspectorSheetMode = false
     @State private var tabbedInspectorSheetRequested = false
     @State private var workspaceForm: EditorLayoutForm = .phone
+    /// Mirrors `EditorLayoutDecision.sheetMaxHeight` so sheet modifiers outside
+    /// the GeometryReader can keep a bottom sheet below an active horizontal fold.
+    @State private var sheetMaxHeight: CGFloat?
     @State private var addMediaItems: [PhotosPickerItem] = []
     @State private var pendingVisualTrackID: UUID?
     @State private var pendingAudioTrackID: UUID?
@@ -191,6 +194,9 @@ public struct ClipEditorView: View {
                     && (resolved == .mediumWorkspace || resolved == .wideWorkspace)
                     && size.width < 680
             }
+            .onChange(of: decision?.sheetMaxHeight, initial: true) { _, newCap in
+                sheetMaxHeight = newCap
+            }
             .onChange(of: inspectorMode) { _, newMode in
                 let resolved = decision?.form ?? workspaceForm
                 let size = decision?.contentSize ?? geo.size
@@ -216,6 +222,9 @@ public struct ClipEditorView: View {
             }
         }
         .onKeyPress { press in
+            if press.modifiers.contains(.command) {
+                return handleCommandShortcut(press)
+            }
             guard press.modifiers.isEmpty else { return .ignored }
 
             if press.key == .space {
@@ -238,6 +247,31 @@ public struct ClipEditorView: View {
         }
     }
 
+    /// Command-key shortcuts that mirror the 片段 menu. Inline text editing keeps
+    /// ⌘C / ⌘V for the field itself, so the editor only claims them when no
+    /// segment is being edited.
+    private func handleCommandShortcut(_ press: KeyPress) -> KeyPress.Result {
+        guard press.modifiers == .command else { return .ignored }
+        guard store.selection.editingSegmentID == nil else { return .ignored }
+
+        switch press.key {
+        case "b":
+            guard store.selection.singleSelectedID != nil else { return .ignored }
+            splitSelectedSegment()
+            return .handled
+        case "c":
+            guard store.selection.singleSelectedID != nil else { return .ignored }
+            copySelectedSegment()
+            return .handled
+        case "v":
+            guard store.hasClipboardSegment else { return .ignored }
+            pasteSegment()
+            return .handled
+        default:
+            return .ignored
+        }
+    }
+
     private func stepFrame(_ direction: Int) {
         let fps = max(store.timeline.canvas.fps, 1)
         let step = 1.0 / Double(fps)
@@ -247,6 +281,19 @@ public struct ClipEditorView: View {
     private func deleteSelectedSegment() {
         guard let segmentID = store.selection.singleSelectedID else { return }
         store.deleteSegment(id: segmentID)
+    }
+
+    /// Keeps a bottom sheet on one physical panel during a horizontal half-fold.
+    ///
+    /// `sheetMaxHeight` is the region below the fold; growing past it would put
+    /// the sheet across the hinge. Below ~200 pt a sheet stops being operable, so
+    /// a slight overhang is preferred to an unusable one. With no fold the caller's
+    /// existing detents are returned unchanged.
+    private func foldSafeDetents(
+        default defaults: Set<PresentationDetent>
+    ) -> Set<PresentationDetent> {
+        guard let cap = sheetMaxHeight else { return defaults }
+        return [.height(max(200, cap))]
     }
 
     private func splitSelectedSegment() {
@@ -1225,6 +1272,7 @@ public struct ClipEditorView: View {
                 store: store,
                 onAudioTargetConsumed: { pendingAudioTrackID = nil }
             )
+            .presentationDetents(foldSafeDetents(default: [.large]))
         }
         // Transition fallback for layouts without an inline inspector.
         .sheet(isPresented: Binding(
@@ -1261,7 +1309,7 @@ public struct ClipEditorView: View {
                 onCollapse: { tabbedInspectorSheetRequested = false }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .presentationDetents([.medium, .large])
+            .presentationDetents(foldSafeDetents(default: [.medium, .large]))
             .presentationDragIndicator(.visible)
         }
         // P1: replace is a command, not an inspector property.
