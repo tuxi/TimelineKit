@@ -64,13 +64,19 @@ public final class VideoExporter {
                 cancellationToken.addCancelHandler {
                     textFrameProvider.invalidate()
                 }
+                // An open editor preview may already own these process-wide slots.
+                // Restore what was there instead of clearing them: exporting from
+                // a live editor used to leave its preview without a provider until
+                // the next timeline rebuild.
+                let previousVideoProvider = VideoLayerComposer.frameProvider
+                let previousTextProvider = TextLayerComposer.frameProvider
                 VideoLayerComposer.frameProvider = exportFrameProvider
                 TextLayerComposer.frameProvider = textFrameProvider
                 defer {
                     exportFrameProvider.invalidate()
                     textFrameProvider.invalidate()
-                    VideoLayerComposer.frameProvider = nil
-                    TextLayerComposer.frameProvider = nil
+                    VideoLayerComposer.frameProvider = previousVideoProvider
+                    TextLayerComposer.frameProvider = previousTextProvider
                 }
 
                 self.coverImage = await generateCoverFromRenderer(
