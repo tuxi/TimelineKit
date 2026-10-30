@@ -126,6 +126,7 @@ public struct ClipEditorView: View {
     @State private var workspaceTopHeightOverride: CGFloat?
     @State private var inspectorTab: EditorInspectorTab = .project
     @State private var showReplacePanel = false
+    @State private var showTextTemplatePicker = false
     @State private var isTabbedInspectorSheetMode = false
     @State private var tabbedInspectorSheetRequested = false
     @State private var workspaceForm: EditorLayoutForm = .phone
@@ -1274,6 +1275,14 @@ public struct ClipEditorView: View {
             )
             .presentationDetents(foldSafeDetents(default: [.large]))
         }
+        // P1: insertable titles and caption styles.
+        .sheet(isPresented: $showTextTemplatePicker) {
+            TextTemplatePicker(store: store) { _ in
+                activeToolCategory = .text
+                inspectorTab = .text
+            }
+            .presentationDetents(foldSafeDetents(default: [.large]))
+        }
         // Transition fallback for layouts without an inline inspector.
         .sheet(isPresented: Binding(
             get: {
@@ -1544,6 +1553,12 @@ public struct ClipEditorView: View {
                         addSubtitleAtPlayhead()
                     } label: {
                         Label("字幕", systemImage: "text.bubble")
+                    }
+
+                    Button {
+                        showTextTemplatePicker = true
+                    } label: {
+                        Label("文字模板", systemImage: "square.grid.2x2")
                     }
                 } label: {
                     Label("添加", systemImage: "plus")

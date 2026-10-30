@@ -98,6 +98,8 @@ struct EditorSecondaryToolPanel: View {
     let store: EditorStore
     var onDismiss: (() -> Void)? = nil
 
+    @State private var showTemplatePicker = false
+
     static let height: CGFloat = 72
 
     var body: some View {
@@ -122,6 +124,9 @@ struct EditorSecondaryToolPanel: View {
         .background(Color(white: 0.13))
         .overlay(alignment: .top) {
             Divider().background(Color.white.opacity(0.08))
+        }
+        .sheet(isPresented: $showTemplatePicker) {
+            TextTemplatePicker(store: store)
         }
     }
 
@@ -158,6 +163,9 @@ struct EditorSecondaryToolPanel: View {
             toolItem("调节", icon: "slider.horizontal.3")
 
         case .text:
+            toolButton("模板", icon: "square.grid.2x2", enabled: true) {
+                showTemplatePicker = true
+            }
             toolButton("新建文本", icon: "textformat", enabled: true) {
                 store.createNewTextSegment()
             }
