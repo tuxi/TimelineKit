@@ -38,16 +38,23 @@ public struct EditorTimeline: Identifiable, Sendable, Hashable, Codable {
     ///
     /// V7 invariant: transitions are render-only visual blends. They do NOT shorten
     /// the timeline — composition time == visual timeline time (1 : 1 mapping).
-    /// Duration is simply the sum of all main-track segment durations.
+    ///
+    /// The duration is the maximum of:
+    /// - the sum of all main-track segment durations (the primary storyline), and
+    /// - the furthest end time of any segment across all tracks (so text/audio
+    ///   that extend past the main track are included in the exported output).
     public var duration: Double {
         let mainSegs = (mainTrack?.segments ?? [])
             .sorted { $0.targetRange.start < $1.targetRange.start }
 
-        guard !mainSegs.isEmpty else {
-            return tracks.flatMap { $0.segments }.map { $0.targetRange.end }.max() ?? 0
-        }
+        let mainDuration = mainSegs.reduce(0) { $0 + $1.targetRange.duration }
 
-        return mainSegs.reduce(0) { $0 + $1.targetRange.duration }
+        let furthestSegmentEnd = tracks
+            .flatMap(\.segments)
+            .map(\.targetRange.end)
+            .max() ?? 0
+
+        return max(mainDuration, furthestSegmentEnd)
     }
 
     /// The unique backbone track. Nil only if the timeline was built without one.
