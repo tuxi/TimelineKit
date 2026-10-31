@@ -64,6 +64,32 @@ public final class TimelineDocument: Identifiable {
         redoStack.removeAll()
     }
 
+    /// Applies a text/subtitle mutation through the cheapest correct path.
+    ///
+    /// Plain text edits take the lightweight `mutateSubtitle` path so the
+    /// composition is not rebuilt on every keystroke (S-04). But when the edit
+    /// changes `timeline.duration` — adding a caption after the last video,
+    /// trimming a title past the end, deleting the tail caption — the current
+    /// `AVPlayerItem` is still bound to the old composition length, so playback
+    /// would stop at the main-track end even though the model says otherwise.
+    /// In that case bump `compositionVersion` so the coordinator rebuilds.
+    private func mutateText(_ label: String, _ body: (inout EditorTimeline) -> Void) {
+        let snapshot = timeline
+        var t = timeline
+        body(&t)
+        let durationChanged = abs(t.duration - snapshot.duration) > 0.001
+        timeline = t
+        // Refresh the text layers immediately so the edit is visible without
+        // waiting for the debounced rebuild.
+        onDidMutateSubtitle?(timeline)
+        if durationChanged {
+            compositionVersion += 1
+        }
+        undoStack.append(UndoEntry(label: label, snapshot: snapshot))
+        if undoStack.count > Self.maxUndoDepth { undoStack.removeFirst() }
+        redoStack.removeAll()
+    }
+
     /// Host integration point for a complete, already-validated timeline produced by
     /// an external editor (for example `AgentEditEngine.apply`). This registers the
     /// replacement as one undo unit; it does not persist or coordinate playback.
@@ -278,8 +304,17 @@ public final class TimelineDocument: Identifiable {
                     }
                 }
             }
+        } else if let seg = timeline.segment(id: id), seg.isText || seg.isSubtitle {
+            mutateText("裁剪片段") { tl in
+                tl.updateSegment(id: id) { seg in
+                    seg.targetRange = newTargetRange
+                    if let newStart = newSourceRangeStart {
+                        seg.sourceRange = TimeRange(start: newStart, duration: newTargetRange.duration * max(seg.speed, 0.001))
+                    }
+                }
+            }
         } else {
-            mutateSubtitle("裁剪片段") { tl in
+            mutate("裁剪片段") { tl in
                 tl.updateSegment(id: id) { seg in
                     seg.targetRange = newTargetRange
                     if let newStart = newSourceRangeStart {
@@ -516,7 +551,7 @@ public final class TimelineDocument: Identifiable {
             guard let ti = tl.tracks.firstIndex(where: { $0.id == trackID }) else { return }
             tl.tracks[ti].insert(segment); if tl.tracks[ti].pendingUserCreated { tl.tracks[ti].pendingUserCreated = false }
         }
-        if Self.segmentTriggersRebuild(segment) { mutate("添加片段", body) } else { mutateSubtitle("添加片段", body) }
+        if Self.segmentTriggersRebuild(segment) { mutate("添加片段", body) } else { mutateText("添加片段", body) }
         cancelPendingCleanup(for: trackID)
     }
 
@@ -533,7 +568,7 @@ public final class TimelineDocument: Identifiable {
         let newID = UUID()
         let newTrack = EditorTrack(id: newID, kind: kind, label: resolvedLabel, zPosition: resolvedZ, segments: [segment], isMainTrack: false)
         let body: (inout EditorTimeline) -> Void = { tl in tl.tracks.append(newTrack) }
-        if Self.segmentTriggersRebuild(segment) { mutate("添加片段", body) } else { mutateSubtitle("添加片段", body) }
+        if Self.segmentTriggersRebuild(segment) { mutate("添加片段", body) } else { mutateText("添加片段", body) }
         return newID
     }
 
