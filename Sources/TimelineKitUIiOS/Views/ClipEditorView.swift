@@ -1268,14 +1268,35 @@ public struct ClipEditorView: View {
                 )
             }
         }
-        // M1c: the inspector reuses the same panel content as the bottom overlay.
+        // M1c: phone inspector. In tabbed mode this is the property inspector —
+        // the selected segment's tabs, or the project tab when nothing is
+        // selected — matching iPad and Duo. Legacy mode keeps the tool-panel
+        // sheet, which is a re-presentation of the bottom overlay.
         .sheet(isPresented: $showInspector) {
-            EditorInspectorSheet(
-                route: toolPanelRoute,
-                store: store,
-                onAudioTargetConsumed: { pendingAudioTrackID = nil }
-            )
-            .presentationDetents(foldSafeDetents(default: [.large]))
+            if inspectorMode == .tabbed {
+                EditorInspectorView(
+                    context: inspectorContext,
+                    store: store,
+                    segmentID: store.selection.singleSelectedID,
+                    selectionCount: store.selection.selectedSegmentIDs.count,
+                    projectName: projectName,
+                    transitionID: store.selection.selectedTransitionID,
+                    cutContext: store.selection.selectedCutContext,
+                    browserAsset: browserPreviewAsset,
+                    activeTab: $inspectorTab,
+                    onCollapse: { showInspector = false }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .presentationDetents(foldSafeDetents(default: [.medium, .large]))
+                .presentationDragIndicator(.visible)
+            } else {
+                EditorInspectorSheet(
+                    route: toolPanelRoute,
+                    store: store,
+                    onAudioTargetConsumed: { pendingAudioTrackID = nil }
+                )
+                .presentationDetents(foldSafeDetents(default: [.large]))
+            }
         }
         // P1: insertable titles and caption styles.
         .sheet(isPresented: $showTextTemplatePicker) {
