@@ -389,6 +389,37 @@ public struct TextStyle: Sendable, Hashable, Codable {
 
     public static let `default` = TextStyle()
 
+    /// Canvas width the built-in text metrics are authored against (the 9:16
+    /// preset). Every renderer treats `fontSize` and the other point-based
+    /// fields as canvas points, so a style tuned for 720 must be scaled when the
+    /// project canvas is wider.
+    public static let referenceCanvasWidth: Double = 720
+
+    /// Returns a copy whose point-based metrics are scaled from the reference
+    /// canvas to `canvasWidth`.
+    ///
+    /// Projects whose canvas comes from source media are much wider than 720
+    /// (1080p video, 12 MP photos), so an unscaled 34 pt caption would cover
+    /// well under 1% of the frame — the "text is tiny on this device" symptom.
+    /// Scale once at creation time; the stored value then means canvas points,
+    /// which is what `SubtitleFrameBuilder` and `TextLayerComposer` assume.
+    public func scaledForCanvas(width: Double) -> TextStyle {
+        guard width > 0, abs(width - Self.referenceCanvasWidth) > 0.5 else { return self }
+        let scale = width / Self.referenceCanvasWidth
+        var copy = self
+        copy.fontSize         = fontSize         * scale
+        copy.backgroundRadius = backgroundRadius * scale
+        copy.paddingH         = paddingH         * scale
+        copy.paddingV         = paddingV         * scale
+        copy.strokeWidth      = strokeWidth      * scale
+        copy.shadowOffsetX    = shadowOffsetX    * scale
+        copy.shadowOffsetY    = shadowOffsetY    * scale
+        copy.shadowRadius     = shadowRadius     * scale
+        copy.kerning          = kerning          * scale
+        copy.lineSpacing      = lineSpacing      * scale
+        return copy
+    }
+
     // MARK: - Codable (custom for backward compatibility)
     //
     // Auto-synthesized decoder requires every stored property to be present in

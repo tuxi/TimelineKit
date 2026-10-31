@@ -25,20 +25,23 @@ extension EditorStore {
         let placeholderAsset = EditorAsset(id: placeholderAssetID, type: .placeholder)
         let segmentID = UUID()
         let range = TimeRange(start: start, duration: max(0.1, template.duration))
+        // Template sizes are authored for a 720-wide canvas; rescale so the
+        // inserted title keeps its intended share of the frame.
+        let style = template.style.scaledForCanvas(width: Double(timeline.canvas.width))
 
         let content: SegmentContent
         switch template.kind {
         case .title:
             content = .text(SegmentContent.TextContent(
                 text: template.defaultText,
-                style: template.style,
+                style: style,
                 position: template.position,
                 anchor: template.anchor
             ))
         case .caption:
             content = .subtitle(SegmentContent.SubtitleContent(
                 text: template.defaultText,
-                style: template.style,
+                style: style,
                 positionY: template.subtitlePositionY,
                 maxCharsPerLine: template.maxCharsPerLine
             ))

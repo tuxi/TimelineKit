@@ -115,7 +115,8 @@ final class TextTemplateTests: XCTestCase {
             return XCTFail("title template must insert a text segment")
         }
         XCTAssertEqual(content.text, template.defaultText)
-        XCTAssertEqual(content.style, template.style)
+        // Insertion rescales the template's 720-referenced metrics to the canvas.
+        XCTAssertEqual(content.style, template.style.scaledForCanvas(width: 1920))
         XCTAssertEqual(content.position, template.position)
         XCTAssertEqual(content.anchor, template.anchor)
     }
@@ -130,7 +131,7 @@ final class TextTemplateTests: XCTestCase {
         guard case .subtitle(let content) = segment.content else {
             return XCTFail("caption template must insert a subtitle segment")
         }
-        XCTAssertEqual(content.style, template.style)
+        XCTAssertEqual(content.style, template.style.scaledForCanvas(width: 1920))
         XCTAssertEqual(content.positionY, template.subtitlePositionY)
         XCTAssertEqual(content.maxCharsPerLine, template.maxCharsPerLine)
     }

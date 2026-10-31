@@ -92,6 +92,7 @@ public struct EditorCanvasSurface: View {
                         segmentID: item.seg.id,
                         content: content,
                         containerSize: geo.size,
+                        canvasWidth: CGFloat(store.timeline.canvas.width),
                         isEditing: store.selection.editingSegmentID == item.seg.id,
                         rendersContent: !store.usesTimelineRuntime,
                         onTap: {
@@ -121,6 +122,7 @@ public struct EditorCanvasSurface: View {
             SubtitleStackView(
                 items:         activeSubtitleOverlays,
                 containerSize: geo.size,
+                canvasWidth:   CGFloat(store.timeline.canvas.width),
                 selectedID:    store.selection.singleSelectedID,
                 rendersContent: !store.usesTimelineRuntime,
                 onTap:         { id in store.selection.selectOnly(id) },
@@ -517,6 +519,10 @@ private struct TextOverlayView: View {
     let segmentID: UUID
     let content: SegmentContent.TextContent
     let containerSize: CGSize
+    /// Canvas width in points. Text metrics are stored in canvas points, so the
+    /// overlay must scale by display width ÷ canvas width to stay on top of the
+    /// glyphs the renderer draws.
+    let canvasWidth: CGFloat
     let isEditing: Bool
     let rendersContent: Bool
 
@@ -646,18 +652,22 @@ private struct TextOverlayView: View {
 
     // MARK: - Helpers
 
+    /// Display points per canvas point.
+    private var contentScale: CGFloat {
+        guard canvasWidth > 0, containerSize.width > 0 else { return 1 }
+        return containerSize.width / canvasWidth
+    }
+
     private var scaledFontSize: CGFloat {
-        // Scale fontSize (designed for canvas width 720) to the displayed preview width
-        CGFloat(content.style.fontSize) * (containerSize.width / 720.0)
+        CGFloat(content.style.fontSize) * contentScale
     }
 
     private var textLayoutWidth: CGFloat {
         // Mirror SubtitleFrameBuilder.renderText:
         // maxWidth = renderSize.width - 120 * fontScale.
-        // EditorPreviewView's text scale uses containerWidth / 720, so the same
-        // side margin in preview points is 120 * containerWidth / 720.
-        let fontScale = containerSize.width / 720.0
-        let sideMargin = 120.0 * fontScale
+        // The 120 pt side margin is in canvas points, so it scales with the same
+        // display ÷ canvas factor as the glyphs.
+        let sideMargin = 120.0 * contentScale
         return max(24, containerSize.width - sideMargin)
     }
 
@@ -755,6 +765,8 @@ private struct SubtitleStackView: View {
     /// matching the timeline visual state.
     let items: [EditorCanvasSurface.OverlayItem]
     let containerSize: CGSize
+    /// Canvas width in points; subtitle metrics are stored in canvas points.
+    let canvasWidth: CGFloat
     let selectedID: UUID?
     let rendersContent: Bool
     var onTap: (UUID) -> Void
@@ -788,7 +800,7 @@ private struct SubtitleStackView: View {
     ) -> some View {
         let style      = content.style
         let fontSize   = CGFloat(style.fontSize)
-        let fontScale  = containerSize.width / 720
+        let fontScale  = canvasWidth > 0 ? containerSize.width / canvasWidth : 1
         let scaledSize = fontSize * fontScale
 
         // v4 (text-style-fidelity-spec §4): honor TextStyle paddings + bg radius

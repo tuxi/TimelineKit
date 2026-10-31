@@ -745,7 +745,8 @@ public final class EditorStore: @MainActor Identifiable {
     @discardableResult public func createNewTextSegment(defaultText: String = "点击编辑文本", defaultDuration: Double = 3.0, targetTrackID: UUID? = nil) -> UUID? {
         let placeholderAssetID = UUID(); let placeholderAsset = EditorAsset(id: placeholderAssetID, type: .placeholder)
         let segmentID = UUID()
-        let segment = EditorSegment(id: segmentID, materialID: placeholderAssetID, sourceRange: nil, targetRange: TimeRange(start: selection.playheadTime, duration: defaultDuration), content: .text(SegmentContent.TextContent(text: defaultText, style: .default, position: .center, anchor: .center)))
+        let style = TextStyle.default.scaledForCanvas(width: Double(timeline.canvas.width))
+        let segment = EditorSegment(id: segmentID, materialID: placeholderAssetID, sourceRange: nil, targetRange: TimeRange(start: selection.playheadTime, duration: defaultDuration), content: .text(SegmentContent.TextContent(text: defaultText, style: style, position: .center, anchor: .center)))
         timeline.materials.add(placeholderAsset)
         let hostTrackID: UUID?
         if let targetTrackID, timeline.track(id: targetTrackID)?.kind == .text { addSegment(toTrack: targetTrackID, segment: segment); hostTrackID = targetTrackID }
@@ -757,7 +758,8 @@ public final class EditorStore: @MainActor Identifiable {
     @discardableResult public func createNewSubtitleSegment(defaultText: String = "点击编辑字幕", defaultDuration: Double = 3.0, targetTrackID: UUID? = nil) -> UUID? {
         let placeholderAssetID = UUID(); let placeholderAsset = EditorAsset(id: placeholderAssetID, type: .placeholder)
         let segmentID = UUID()
-        let segment = EditorSegment(id: segmentID, materialID: placeholderAssetID, sourceRange: nil, targetRange: TimeRange(start: selection.playheadTime, duration: defaultDuration), content: .subtitle(SegmentContent.SubtitleContent(text: defaultText, style: .default)))
+        let style = TextStyle.default.scaledForCanvas(width: Double(timeline.canvas.width))
+        let segment = EditorSegment(id: segmentID, materialID: placeholderAssetID, sourceRange: nil, targetRange: TimeRange(start: selection.playheadTime, duration: defaultDuration), content: .subtitle(SegmentContent.SubtitleContent(text: defaultText, style: style)))
         timeline.materials.add(placeholderAsset)
         let hostTrackID: UUID?
         if let targetTrackID, timeline.track(id: targetTrackID)?.kind == .subtitle { addSegment(toTrack: targetTrackID, segment: segment); hostTrackID = targetTrackID }
