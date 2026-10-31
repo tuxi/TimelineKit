@@ -43,6 +43,16 @@ public final class ClipEditorViewController: UIViewController {
     /// SwiftUI-owned route for empty-track add affordances.
     public var onEmptyTrackAdd: ((UUID, EditorTrack.Kind) -> Void)?
 
+    /// Called when the editor's view has genuinely left the screen — a
+    /// navigation pop, a sheet dismissal, or the host swapping the subtree.
+    ///
+    /// Playback must stop here: the store and its `AVPlayer` can outlive the
+    /// view (host-owned stores, the process-wide frame-provider slot), so
+    /// without this the timeline keeps playing on the screen the user returned
+    /// to. Set by `TrackEditorRepresentable`; idempotent with the SwiftUI
+    /// `onDisappear` path.
+    var onLeave: (() -> Void)?
+
     // Scrub state (spec: timeline-scrub-playback-spec.md)
     private var scrubWasPlaying = false
     private var lastScrubTime: CFTimeInterval = 0
@@ -82,6 +92,30 @@ public final class ClipEditorViewController: UIViewController {
         setupCanvas()
         setupGestureRecognizers()
         labelsView.setExpanded(viewportSession.labelsExpanded, animated: false)
+    }
+
+    /// UIKit-level backstop for stopping playback on exit.
+    ///
+    /// SwiftUI's `onDisappear` covers the common paths, but hosts may present
+    /// the editor in ways where it is not delivered (sheet dismissal during a
+    /// parent state change, subtree replacement). This hook always runs when the
+    /// view leaves the window.
+    ///
+    /// Two guards keep it from firing when the editor is merely *re-laid out*:
+    /// - a page sheet (inspector, export config, template picker) covering the
+    ///   editor does not call `viewDidDisappear` at all;
+    /// - a layout-branch switch (rotation, fold) dismantles this controller and
+    ///   builds a replacement, which claims the viewport session synchronously
+    ///   in `init`. Deferring one runloop lets that claim land, so only a real
+    ///   exit reaches `onLeave`.
+    public override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard view.window == nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.view.window == nil else { return }
+            guard !self.viewportSession.hasReplacement(for: self) else { return }
+            self.onLeave?()
+        }
     }
 
     // MARK: - Public API (called from SwiftUI representable)

@@ -1140,6 +1140,8 @@ public struct ClipEditorView: View {
                 timeline: store.timeline,
                 refreshToken: trackRefreshToken,
                 onEmptyTrackAdd: handleEmptyTrackAdd,
+                compositionCoordinator: coordinator,
+                browserPlayback: browserPlayback,
                 controller: $trackController
             )
             .frame(minHeight: resolvedMinHeight, maxHeight: .infinity)
@@ -1433,6 +1435,7 @@ public struct ClipEditorView: View {
           
         }
         .onDisappear {
+            stopPlaybackOnExit()
             saveDraftAndNotify()
             if persistence == .draftStore {
                 draftStore.unbind()
@@ -1704,6 +1707,23 @@ public struct ClipEditorView: View {
         }
     }
 
+    /// Stops everything that can keep making noise after the editor is gone.
+    ///
+    /// The store and its `AVPlayer` can outlive this view (host-owned stores,
+    /// plus the process-wide `VideoLayerComposer.frameProvider` slot holding the
+    /// render pipeline), so without an explicit stop the timeline keeps playing
+    /// on whatever screen the user returned to.
+    ///
+    /// Idempotent with `ClipEditorViewController.onLeave`, which covers hosts
+    /// where SwiftUI does not deliver `onDisappear`. Re-entry is safe: `onAppear`
+    /// calls `scheduleRebuild(immediate: true)`, which re-acquires the frame
+    /// provider and restarts the clock.
+    private func stopPlaybackOnExit() {
+        if store.isPlaying { store.pause() }
+        browserPlayback.stop()
+        coordinator.suspendTimelineRuntime()
+    }
+
     private func saveDraftAndNotify() {
         switch persistence {
         case .draftStore:
@@ -1947,6 +1967,9 @@ struct TrackEditorRepresentable: UIViewControllerRepresentable {
     /// runs for external timeline replacements.
     var refreshToken: Int
     var onEmptyTrackAdd: ((UUID, EditorTrack.Kind) -> Void)?
+    /// Used to stop timeline playback when the editor's view really goes away.
+    var compositionCoordinator: CompositionCoordinator
+    var browserPlayback: BrowserAssetPlaybackController
     @Binding var controller: ClipEditorViewController?
 
     final class Coordinator {
@@ -1964,6 +1987,7 @@ struct TrackEditorRepresentable: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> ClipEditorViewController {
         let vc = ClipEditorViewController(store: store, viewportSession: viewportSession)
         vc.onEmptyTrackAdd = onEmptyTrackAdd
+        vc.onLeave = makeLeaveHandler()
         DispatchQueue.main.async {
             controller = vc
         }
@@ -1972,7 +1996,23 @@ struct TrackEditorRepresentable: UIViewControllerRepresentable {
 
     func updateUIViewController(_ vc: ClipEditorViewController, context: Context) {
         vc.onEmptyTrackAdd = onEmptyTrackAdd
+        vc.onLeave = makeLeaveHandler()
         vc.apply(timeline: timeline, selection: store.selection)
+    }
+
+    /// Stops everything that can keep making noise after the editor is gone.
+    ///
+    /// Captures the three collaborators directly instead of the SwiftUI view so
+    /// the handler stays valid even if the view struct is re-created.
+    private func makeLeaveHandler() -> () -> Void {
+        let store = self.store
+        let coordinator = self.compositionCoordinator
+        let playback = self.browserPlayback
+        return {
+            if store.isPlaying { store.pause() }
+            playback.stop()
+            coordinator.suspendTimelineRuntime()
+        }
     }
 
     static func dismantleUIViewController(
