@@ -32,6 +32,21 @@ public final class ClipEditorViewController: UIViewController {
     private let diagnosticID = UUID()
     #endif
 
+    private var scrollViewLeft: NSLayoutConstraint?
+
+    /// Whether the track-name sidebar is shown.
+    ///
+    /// Hosts that want a bare timeline (for example a narrow split view, or a
+    /// design that puts track controls elsewhere) can turn it off; the canvas
+    /// then spans the full width. Defaults to visible, matching the editor's
+    /// historical layout.
+    public var showsTrackLabels: Bool = true {
+        didSet {
+            guard isViewLoaded, oldValue != showsTrackLabels else { return }
+            applyTrackLabelsVisibility()
+        }
+    }
+
     /// Guards against re-entrant scroll sync between canvas and labels scroll views.
     private var isSyncingScroll = false
 
@@ -372,11 +387,25 @@ public final class ClipEditorViewController: UIViewController {
         view.addSubview(scrollView)
 
         NSLayoutConstraint.activate([
-            scrollView.leadingAnchor.constraint(equalTo: labelsView.trailingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+
+        applyTrackLabelsVisibility()
+    }
+
+    /// Shows or hides the sidebar and re-anchors the canvas to whichever edge is
+    /// now free. Replaces the previous leading constraint instead of adding a
+    /// second one, so toggling repeatedly cannot stack constraints.
+    private func applyTrackLabelsVisibility() {
+        let isHidden = !showsTrackLabels
+        labelsView.isHidden = isHidden
+        scrollViewLeft?.isActive = false
+        scrollViewLeft = isHidden
+            ? scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+            : scrollView.leadingAnchor.constraint(equalTo: labelsView.trailingAnchor)
+        scrollViewLeft?.isActive = true
     }
 
     private func setupCanvas() {

@@ -41,6 +41,9 @@ public struct ClipEditorView: View {
     private let persistence: EditorPersistenceMode
     private let editorAccessory: ((EditorStore) -> AnyView)?
     private let projectName: String
+    /// Whether the timeline's track-name sidebar is shown. Defaults to visible;
+    /// hosts can hide it to give the canvas the full width.
+    private let showsTrackLabels: Bool
 
     /// 编辑页（由项目页驱动）：接收已打开的资源库与目标项目。
     /// 项目页负责库/项目管理（新建/重命名/删除等）；本页专注编辑当前项目，
@@ -62,7 +65,8 @@ public struct ClipEditorView: View {
         onProjectSave: ((LibraryProject) -> Void)? = nil,
         onPersistenceError: ((Error) -> Void)? = nil,
         onDraftSave: ((UUID, EditorTimeline) -> Void)? = nil,
-        onExport: ((Data, URL, UIImage) -> Void)? = nil
+        onExport: ((Data, URL, UIImage) -> Void)? = nil,
+        showsTrackLabels: Bool = true
     ) {
         self.onDraftSave = onDraftSave
         self.onExport = onExport
@@ -71,6 +75,7 @@ public struct ClipEditorView: View {
         self.persistence = persistence
         self.editorAccessory = editorAccessory
         self.projectName = project.name
+        self.showsTrackLabels = showsTrackLabels
         let resolvedStore = editorStore ?? EditorStore(timeline: project.timeline)
         _store = State(initialValue: resolvedStore)
         _libraryStore = State(initialValue: libraryStore)
@@ -85,7 +90,8 @@ public struct ClipEditorView: View {
     public init(
         store: EditorStore,
         onDraftSave: ((UUID, EditorTimeline) -> Void)? = nil,
-        onExport: ((Data, URL, UIImage) -> Void)? = nil
+        onExport: ((Data, URL, UIImage) -> Void)? = nil,
+        showsTrackLabels: Bool = true
     ) {
         self.onDraftSave = onDraftSave
         self.onExport = onExport
@@ -94,6 +100,7 @@ public struct ClipEditorView: View {
         self.persistence = .draftStore
         self.editorAccessory = nil
         self.projectName = "Embedded Project"
+        self.showsTrackLabels = showsTrackLabels
         _store = State(initialValue: store)
         _lastSavedProjectVersion = State(initialValue: AgentEditPlan.timelineVersion(for: store.timeline))
         if let embedded = try? TimelineEmbeddedLibrary.openOrCreate(for: store.timeline) {
@@ -1142,6 +1149,7 @@ public struct ClipEditorView: View {
                 onEmptyTrackAdd: handleEmptyTrackAdd,
                 compositionCoordinator: coordinator,
                 browserPlayback: browserPlayback,
+                showsTrackLabels: showsTrackLabels,
                 controller: $trackController
             )
             .frame(minHeight: resolvedMinHeight, maxHeight: .infinity)
@@ -1615,7 +1623,11 @@ public struct ClipEditorView: View {
                     }
                 }
 
-                if workspaceForm != .phoneLandscape {
+                // Landscape phones hide the button only in legacy mode, where it
+                // would just duplicate the inline tool panel. The tabbed
+                // inspector is a different surface (segment/project properties),
+                // so it stays reachable there too.
+                if workspaceForm != .phoneLandscape || inspectorMode == .tabbed {
                     Button {
                         if inspectorMode == .tabbed && workspaceForm == .foldedWorkspace {
                             tabbedInspectorSheetRequested = true
@@ -1991,6 +2003,7 @@ struct TrackEditorRepresentable: UIViewControllerRepresentable {
     /// Used to stop timeline playback when the editor's view really goes away.
     var compositionCoordinator: CompositionCoordinator
     var browserPlayback: BrowserAssetPlaybackController
+    var showsTrackLabels: Bool = true
     @Binding var controller: ClipEditorViewController?
 
     final class Coordinator {
@@ -2009,6 +2022,7 @@ struct TrackEditorRepresentable: UIViewControllerRepresentable {
         let vc = ClipEditorViewController(store: store, viewportSession: viewportSession)
         vc.onEmptyTrackAdd = onEmptyTrackAdd
         vc.onLeave = makeLeaveHandler()
+        vc.showsTrackLabels = showsTrackLabels
         DispatchQueue.main.async {
             controller = vc
         }
@@ -2018,6 +2032,7 @@ struct TrackEditorRepresentable: UIViewControllerRepresentable {
     func updateUIViewController(_ vc: ClipEditorViewController, context: Context) {
         vc.onEmptyTrackAdd = onEmptyTrackAdd
         vc.onLeave = makeLeaveHandler()
+        vc.showsTrackLabels = showsTrackLabels
         vc.apply(timeline: timeline, selection: store.selection)
     }
 
