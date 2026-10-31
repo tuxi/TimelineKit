@@ -108,6 +108,56 @@ final class TextMutationRebuildTests: XCTestCase {
         XCTAssertEqual(doc.compositionVersion, before)
     }
 
+    // MARK: - Preview then commit (trim handle gesture)
+
+    func testPreviewThenTrimCommitPastMainTrackBumpsCompositionVersion() {
+        let doc = document(mainDuration: 5)
+        let segment = textSegment(start: 1, duration: 2)
+        doc.addSegmentAutoTrack(kind: .text, segment: segment)
+        let before = doc.compositionVersion
+
+        // Live trim preview writes the model without bumping the version.
+        doc.previewTrimRange(segmentID: segment.id, range: TimeRange(start: 1, duration: 8))
+        XCTAssertEqual(doc.compositionVersion, before, "Preview must stay lightweight")
+        XCTAssertEqual(doc.timeline.duration, 9, accuracy: 0.001)
+
+        // Commit compares against the last built composition length (5), not
+        // against the already-previewed timeline.
+        doc.trimSegment(id: segment.id, newTargetRange: TimeRange(start: 1, duration: 8))
+
+        XCTAssertGreaterThan(doc.compositionVersion, before,
+                             "Committing a previewed trim past the main track must rebuild")
+        XCTAssertEqual(doc.timeline.duration, 9, accuracy: 0.001)
+    }
+
+    func testPreviewThenTrimCommitInsideMainTrackDoesNotBumpCompositionVersion() {
+        let doc = document(mainDuration: 10)
+        let segment = textSegment(start: 1, duration: 2)
+        doc.addSegmentAutoTrack(kind: .text, segment: segment)
+        let before = doc.compositionVersion
+
+        doc.previewTrimRange(segmentID: segment.id, range: TimeRange(start: 1, duration: 4))
+        doc.trimSegment(id: segment.id, newTargetRange: TimeRange(start: 1, duration: 4))
+
+        XCTAssertEqual(doc.compositionVersion, before)
+        XCTAssertEqual(doc.timeline.duration, 10, accuracy: 0.001)
+    }
+
+    func testCancelledPreviewDoesNotBumpCompositionVersion() {
+        let doc = document(mainDuration: 5)
+        let segment = textSegment(start: 1, duration: 2)
+        doc.addSegmentAutoTrack(kind: .text, segment: segment)
+        let before = doc.compositionVersion
+
+        // Drag out past the main track, then cancel back to the original range.
+        doc.previewTrimRange(segmentID: segment.id, range: TimeRange(start: 1, duration: 8))
+        doc.previewTrimRange(segmentID: segment.id, range: TimeRange(start: 1, duration: 2))
+        doc.trimSegment(id: segment.id, newTargetRange: TimeRange(start: 1, duration: 2))
+
+        XCTAssertEqual(doc.compositionVersion, before)
+        XCTAssertEqual(doc.timeline.duration, 5, accuracy: 0.001)
+    }
+
     // MARK: - Deleting the tail caption
 
     func testDeletingTailTextBumpsCompositionVersion() {

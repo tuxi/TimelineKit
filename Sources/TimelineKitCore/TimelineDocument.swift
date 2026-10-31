@@ -17,8 +17,24 @@ public final class TimelineDocument: Identifiable {
     /// Subtitle/text-only mutations do NOT increment this, preventing unnecessary rebuilds (S-04).
     public private(set) var compositionVersion: Int = 0
 
+    /// `timeline.duration` at the moment `compositionVersion` was last bumped —
+    /// in other words, the length the coordinator has been asked to build.
+    ///
+    /// Trim gestures preview by writing `timeline` directly (`previewTrimRange`)
+    /// without bumping the version, so at commit time the "before" timeline
+    /// already holds the new duration. Comparing a text commit against this
+    /// snapshot instead of the live timeline keeps the rebuild decision honest.
+    @ObservationIgnored private var builtCompositionDuration: Double
+
     /// Bump composition version from outside (e.g. preview operations in EditorStore).
-    public func bumpCompositionVersion() { compositionVersion += 1 }
+    public func bumpCompositionVersion() { noteCompositionDirty() }
+
+    /// Marks the composition as needing a rebuild and records the duration the
+    /// coordinator will be asked to build.
+    private func noteCompositionDirty() {
+        builtCompositionDuration = timeline.duration
+        compositionVersion += 1
+    }
 
     // MARK: - Undo
 
@@ -38,6 +54,7 @@ public final class TimelineDocument: Identifiable {
 
     public init(timeline: EditorTimeline) {
         self.timeline = timeline
+        self.builtCompositionDuration = timeline.duration
     }
 
     // MARK: - Mutation
@@ -47,7 +64,7 @@ public final class TimelineDocument: Identifiable {
         var t = timeline
         body(&t)
         timeline = t
-        compositionVersion += 1
+        noteCompositionDirty()
         undoStack.append(UndoEntry(label: label, snapshot: snapshot))
         if undoStack.count > Self.maxUndoDepth { undoStack.removeFirst() }
         redoStack.removeAll()
@@ -73,17 +90,22 @@ public final class TimelineDocument: Identifiable {
     /// `AVPlayerItem` is still bound to the old composition length, so playback
     /// would stop at the main-track end even though the model says otherwise.
     /// In that case bump `compositionVersion` so the coordinator rebuilds.
+    ///
+    /// The comparison is against `builtCompositionDuration`, not against the
+    /// live timeline: trim gestures already wrote the previewed range into
+    /// `timeline`, so a commit-vs-preview comparison would always report "no
+    /// change" and skip the rebuild.
     private func mutateText(_ label: String, _ body: (inout EditorTimeline) -> Void) {
         let snapshot = timeline
         var t = timeline
         body(&t)
-        let durationChanged = abs(t.duration - snapshot.duration) > 0.001
+        let durationChanged = abs(t.duration - builtCompositionDuration) > 0.001
         timeline = t
         // Refresh the text layers immediately so the edit is visible without
         // waiting for the debounced rebuild.
         onDidMutateSubtitle?(timeline)
         if durationChanged {
-            compositionVersion += 1
+            noteCompositionDirty()
         }
         undoStack.append(UndoEntry(label: label, snapshot: snapshot))
         if undoStack.count > Self.maxUndoDepth { undoStack.removeFirst() }
@@ -126,7 +148,7 @@ public final class TimelineDocument: Identifiable {
         timeline = updated
         undoStack = undoStack.map { UndoEntry(label: $0.label, snapshot: resolved($0.snapshot) ?? $0.snapshot) }
         redoStack = redoStack.map { UndoEntry(label: $0.label, snapshot: resolved($0.snapshot) ?? $0.snapshot) }
-        compositionVersion += 1
+        noteCompositionDirty()
         return true
     }
 
@@ -136,7 +158,7 @@ public final class TimelineDocument: Identifiable {
         guard let entry = undoStack.popLast() else { return }
         redoStack.append(UndoEntry(label: entry.label, snapshot: timeline))
         timeline = entry.snapshot
-        compositionVersion += 1
+        noteCompositionDirty()
         clearStaleSelection()
     }
 
@@ -144,7 +166,7 @@ public final class TimelineDocument: Identifiable {
         guard let entry = redoStack.popLast() else { return }
         undoStack.append(UndoEntry(label: entry.label, snapshot: timeline))
         timeline = entry.snapshot
-        compositionVersion += 1
+        noteCompositionDirty()
         clearStaleSelection()
     }
 
@@ -628,7 +650,7 @@ public final class TimelineDocument: Identifiable {
     }
 
     public func previewAdjustment(segmentID: UUID, adjustment: SegmentAdjustment) {
-        timeline.updateSegment(id: segmentID) { $0.adjustment = adjustment }; compositionVersion += 1
+        timeline.updateSegment(id: segmentID) { $0.adjustment = adjustment }; noteCompositionDirty()
     }
 
     /// `undoBase` is the adjustment captured when a slider drag began.
@@ -645,7 +667,7 @@ public final class TimelineDocument: Identifiable {
 
     public func previewTransform(segmentID: UUID, transform: SegmentTransform) {
         timeline.updateSegment(id: segmentID) { $0.transform = transform }
-        compositionVersion += 1
+        noteCompositionDirty()
     }
 
     /// Commits a transform change. `undoBase` is the transform captured when a
@@ -667,7 +689,7 @@ public final class TimelineDocument: Identifiable {
     }
 
     public func previewClipAnimation(segmentID: UUID, animation: ClipAnimation) {
-        timeline.updateSegment(id: segmentID) { $0.setAnimation(animation) }; compositionVersion += 1
+        timeline.updateSegment(id: segmentID) { $0.setAnimation(animation) }; noteCompositionDirty()
     }
 
     public func setClipAnimation(segmentID: UUID, animation: ClipAnimation) {
