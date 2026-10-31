@@ -33,42 +33,47 @@ public struct EditorControlBar: View {
     }
 
     private var timelineControls: some View {
-        HStack(spacing: 0) {
-            Spacer()
+        ZStack {
+            HStack(spacing: 0) {
+                Spacer()
 
-            // Previous segment
-            controlButton(icon: "backward.end.fill") {
-                seekToPreviousSegment()
+                // Previous segment
+                controlButton(icon: "backward.end.fill") {
+                    seekToPreviousSegment()
+                }
+
+                // Play / Pause — enlarged for primary action prominence and reliable touch.
+                controlButton(
+                    icon: store.isPlaying ? "pause.fill" : "play.fill",
+                    iconSize: 22,
+                    width: 60,
+                    height: 52
+                ) {
+                    store.togglePlayback()
+                }
+
+                // Next segment
+                controlButton(icon: "forward.end.fill") {
+                    seekToNextSegment()
+                }
+
+                Spacer()
             }
-
-            // Play / Pause — enlarged for primary action prominence and reliable touch.
-            controlButton(
-                icon: store.isPlaying ? "pause.fill" : "play.fill",
-                iconSize: 22,
-                width: 60,
-                height: 52
-            ) {
-                store.togglePlayback()
+            
+            HStack(spacing: 0) {
+                Spacer()
+                // V5 fullscreen-preview-spec §3.4: 全屏预览入口
+                // 始终可见；空 timeline 时按钮禁用。与同栏其他按钮共享 controlButton 样式。
+                controlButton(
+                    icon: "arrow.up.left.and.arrow.down.right",
+                    iconSize: 16
+                ) {
+                    onRequestFullScreenPreview()
+                }
+                .disabled(isTimelineEmpty)
+                .opacity(isTimelineEmpty ? 0.4 : 1.0)
+                .accessibilityLabel("全屏预览")
             }
-
-            // Next segment
-            controlButton(icon: "forward.end.fill") {
-                seekToNextSegment()
-            }
-
-            Spacer()
-
-            // V5 fullscreen-preview-spec §3.4: 全屏预览入口
-            // 始终可见；空 timeline 时按钮禁用。与同栏其他按钮共享 controlButton 样式。
-            controlButton(
-                icon: "arrow.up.left.and.arrow.down.right",
-                iconSize: 16
-            ) {
-                onRequestFullScreenPreview()
-            }
-            .disabled(isTimelineEmpty)
-            .opacity(isTimelineEmpty ? 0.4 : 1.0)
-            .accessibilityLabel("全屏预览")
         }
     }
 
