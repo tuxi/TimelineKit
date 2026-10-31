@@ -61,12 +61,12 @@ public struct ClipEditorView: View {
         project: LibraryProject,
         editorStore: EditorStore? = nil,
         persistence: EditorPersistenceMode = .draftStore,
+        showsTrackLabels: Bool = true,
         editorAccessory: ((EditorStore) -> AnyView)? = nil,
         onProjectSave: ((LibraryProject) -> Void)? = nil,
         onPersistenceError: ((Error) -> Void)? = nil,
         onDraftSave: ((UUID, EditorTimeline) -> Void)? = nil,
         onExport: ((Data, URL, UIImage) -> Void)? = nil,
-        showsTrackLabels: Bool = true
     ) {
         self.onDraftSave = onDraftSave
         self.onExport = onExport
